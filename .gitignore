@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# 資料庫
+database.db
+database_backup_*.db
+*.db-journal
+
+# 加密金鑰（重要！不要提交）
+.encryption_key
+
+# 上傳的圖片
+uploads/*
+!uploads/.gitkeep
+
+# 日誌
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 環境變數
+.env
+.env.local
+
+# 備份
+backups/
+
