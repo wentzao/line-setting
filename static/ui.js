@@ -1746,44 +1746,23 @@ function wireTabControls(state) {
             });
             
             // 移除 Rich Menu
-            document.getElementById('delete-tab').addEventListener('click', async () => {
+            document.getElementById('delete-tab').addEventListener('click', () => {
                 if (state.project.richMenus.length <= 1) {
                     alert('至少需要保留一個 Rich Menu');
                     return;
                 }
                 if (confirm('確定要從專案中移除此 Rich Menu 嗎？')) {
-                    const richMenuToDelete = state.project.richMenus[rmIndex];
+                    state.project.richMenus.splice(rmIndex, 1);
+                    state.currentTabIndex = Math.min(state.currentTabIndex, state.project.richMenus.length - 1);
+                    renderTabs(state);
+                    loadCurrentTab(state);
                     
-                    try {
-                        // 先從資料庫中刪除
-                        await deleteRichMenu(richMenuToDelete.id);
-                        
-                        // 然後從陣列中移除
-                        state.project.richMenus.splice(rmIndex, 1);
-                        
-                        // 調整當前編輯的 tab 索引
-                        if (state.currentTabIndex >= rmIndex && state.currentTabIndex > 0) {
-                            state.currentTabIndex--;
-                        }
-                        state.currentTabIndex = Math.min(state.currentTabIndex, state.project.richMenus.length - 1);
-                        
-                        // 重新渲染主要介面
-                        renderTabs(state);
-                        loadCurrentTab(state);
-                        
-                        // 關閉設定 Modal 並顯示成功訊息
-                        setSettingsModalVisible(false);
-                        
-                        const saveStatusEl = document.getElementById('save-status');
-                        if (saveStatusEl) {
-                            saveStatusEl.innerHTML = `<span class="status-dot success-dot" aria-hidden="true"></span><span>已移除 Rich Menu</span>`;
-                            setTimeout(() => {
-                                saveStatusEl.textContent = '';
-                            }, 2000);
-                        }
-                    } catch (e) {
-                        alert('移除 Rich Menu 失敗：' + (e.message || e));
-                    }
+                    // 重新渲染設定 tabs
+                    currentSettingsTab = 0;
+                    renderSettingsTabs();
+                    renderSettingsContent();
+                    
+                    if (state.scheduleAutosave) state.scheduleAutosave();
                 }
             });
         }
