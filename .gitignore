@@ -12,7 +12,7 @@ dist/
 build/
 
 # 資料庫
-database.db
+# database.db
 database_backup_*.db
 *.db-journal
 
