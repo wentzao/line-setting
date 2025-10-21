@@ -300,6 +300,30 @@ async function updateRichMenuInBackend(richMenu) {
     }
 }
 
+// 刪除 Rich Menu
+window.deleteRichMenu = async function deleteRichMenu(richMenuId) {
+    try {
+        // 只刪除數字 ID 的 Rich Menu（已保存到資料庫的）
+        if (typeof richMenuId !== 'number') {
+            return { ok: true };  // 臨時 ID 不需要刪除
+        }
+        
+        const response = await fetch(`${API_BASE}/richmenus/${richMenuId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (!data.ok) {
+            throw new Error(data.message || '刪除 Rich Menu 失敗');
+        }
+        
+        return data;
+    } catch (e) {
+        console.error('deleteRichMenu error:', e);
+        throw e;
+    }
+};
+
 // 上傳圖片到後端
 async function uploadImageToBackend(richMenuId, imageData) {
     try {
