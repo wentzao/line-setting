@@ -179,7 +179,37 @@ window.saveProject = async function saveProject(project) {
                 throw new Error(data.message || '更新專案失敗');
             }
             
-            // 處理 Rich Menus
+            // 取得資料庫中的所有 Rich Menu ID
+            const projectData = await getProject(project.projectId || project.id);
+            const dbRichMenuIds = new Set(
+                projectData.richMenus
+                    .filter(rm => typeof rm.id === 'number')
+                    .map(rm => rm.id)
+            );
+            
+            // 取得目前前端陣列中的 Rich Menu ID（僅包含數字 ID）
+            const currentRichMenuIds = new Set(
+                (project.richMenus || [])
+                    .filter(rm => typeof rm.id === 'number')
+                    .map(rm => rm.id)
+            );
+            
+            // 找出需要刪除的 Rich Menu ID（在資料庫中但不在目前陣列中）
+            const idsToDelete = [...dbRichMenuIds].filter(id => !currentRichMenuIds.has(id));
+            
+            // 刪除不在目前陣列中的 Rich Menu
+            for (const idToDelete of idsToDelete) {
+                try {
+                    await fetch(`${API_BASE}/richmenus/${idToDelete}`, {
+                        method: 'DELETE'
+                    });
+                    console.log(`已刪除 Rich Menu ID: ${idToDelete}`);
+                } catch (e) {
+                    console.error(`刪除 Rich Menu ${idToDelete} 失敗:`, e);
+                }
+            }
+            
+            // 處理 Rich Menus（更新或新增）
             if (project.richMenus) {
                 for (const rm of project.richMenus) {
                     // 檢查 rm.id 是數字還是臨時 ID（如 rm_123456）
