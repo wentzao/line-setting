@@ -80,7 +80,7 @@ function initSocketIO() {
         }
     });
     
-    socket.on('richmenu:update_metadata', (data) => {
+    socket.on('richmenu:update_metadata', async (data) => {
         if (data.sender === myUserId) return;
         console.log('收到 metadata 更新', data);
         
@@ -114,19 +114,67 @@ function initSocketIO() {
             if (data.metadata.selected !== undefined) {
                 currentRM.metadata.selected = data.metadata.selected;
             }
-            if (data.metadata.image) {
+            
+            // 處理圖片更新（從服務器加載）
+            if (data.metadata.imagePath) {
+                try {
+                    // 從服務器加載圖片
+                    const imageUrl = `${API_BASE}/uploads/${data.metadata.imagePath}`;
+                    const response = await fetch(imageUrl);
+                    const blob = await response.blob();
+                    
+                    // 轉換為 dataUrl
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        const dataUrl = reader.result;
+                        const dim = await getImageDimensions(dataUrl);
+                        
+                        currentRM.image = {
+                            name: data.metadata.imageName || data.metadata.imagePath,
+                            type: blob.type,
+                            dataUrl: dataUrl,
+                            width: dim.width,
+                            height: dim.height,
+                            path: data.metadata.imagePath,
+                            thumbnail: data.metadata.thumbnailPath
+                        };
+                        
+                        // 重繪背景
+                        await setupCanvas(state);
+                        
+                        // 更新 tab 名稱和 JSON 預覽
+                        renderTabs(state);
+                        renderJsonPreview(state);
+                        
+                        showNotification('其他使用者更新了圖片', 'info');
+                    };
+                    reader.readAsDataURL(blob);
+                } catch (error) {
+                    console.error('載入圖片失敗:', error);
+                    showNotification('載入圖片失敗', 'error');
+                }
+            } else if (data.metadata.image) {
+                // 兼容舊的方式（直接傳送 image 對象）
                 currentRM.image = data.metadata.image;
                 // 重繪背景
-                setupCanvas(state);
+                await setupCanvas(state);
+                
+                // 更新 tab 名稱
+                renderTabs(state);
+                
+                // 更新 JSON 預覽
+                renderJsonPreview(state);
+                
+                showNotification('其他使用者更新了設定', 'info');
+            } else {
+                // 更新 tab 名稱
+                renderTabs(state);
+                
+                // 更新 JSON 預覽
+                renderJsonPreview(state);
+                
+                showNotification('其他使用者更新了設定', 'info');
             }
-            
-            // 更新 tab 名稱
-            renderTabs(state);
-            
-            // 更新 JSON 預覽
-            renderJsonPreview(state);
-            
-            showNotification('其他使用者更新了設定', 'info');
         }
     });
     
@@ -239,6 +287,16 @@ function drawRemoteCursor(data) {
 function showNotification(message, type = 'info') {
     console.log(`[${type.toUpperCase()}] ${message}`);
     
+    // 根據類型選擇背景顏色
+    let backgroundColor;
+    if (type === 'info') {
+        backgroundColor = '#1a73e8';  // 藍色
+    } else if (type === 'error') {
+        backgroundColor = '#d93025';  // 紅色
+    } else {
+        backgroundColor = '#02a568';  // 綠色 (success)
+    }
+    
     // 建立視覺化通知
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -247,7 +305,7 @@ function showNotification(message, type = 'info') {
         top: 20px;
         right: 20px;
         padding: 12px 20px;
-        background: ${type === 'info' ? '#1a73e8' : '#02a568'};
+        background: ${backgroundColor};
         color: white;
         border-radius: 6px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
@@ -1926,13 +1984,24 @@ async function onImageSelected(e, state) {
     renderJsonPreview(state);
     if (state.scheduleAutosave) state.scheduleAutosave();
     
-    // 廣播圖片更新（透過 metadata）
-    broadcastMetadataUpdate(currentRM.id, {
-        image: currentRM.image,
-        name: currentRM.metadata.name,
-        chatBarText: currentRM.metadata.chatBarText,
-        size: currentRM.metadata.size
-    });
+    // 上傳圖片到服務器（這樣其他用戶才能訪問）
+    try {
+        await uploadImageToBackend(currentRM.id, currentRM.image);
+        console.log('圖片已上傳到服務器');
+        
+        // 廣播圖片更新（使用圖片路徑而不是 dataUrl）
+        broadcastMetadataUpdate(currentRM.id, {
+            imagePath: currentRM.image.path,
+            thumbnailPath: currentRM.image.thumbnail,
+            imageName: currentRM.image.name,
+            name: currentRM.metadata.name,
+            chatBarText: currentRM.metadata.chatBarText,
+            size: currentRM.metadata.size
+        });
+    } catch (error) {
+        console.error('上傳圖片失敗:', error);
+        alert(`上傳圖片失敗: ${error.message}`);
+    }
 }
 
 function readFileAsDataUrl(file) {
