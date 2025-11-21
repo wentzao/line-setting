@@ -2715,13 +2715,62 @@ function renderActionFields(state) {
         fields.appendChild(group);
     };
 
+    const addTextarea = (label, id, value = '', maxLength = 300) => {
+        const group = document.createElement('div');
+        group.className = 'form-group';
+        const lab = document.createElement('label');
+        lab.textContent = label;
+        
+        const textarea = document.createElement('textarea');
+        textarea.id = id;
+        textarea.value = value || '';
+        textarea.rows = 3;
+        textarea.maxLength = maxLength;
+        textarea.style.resize = 'vertical';
+        textarea.style.minHeight = '60px';
+        
+        // 建立字數提示元素
+        const charCount = document.createElement('div');
+        charCount.className = 'char-count';
+        charCount.style.fontSize = '0.85em';
+        charCount.style.color = '#666';
+        charCount.style.marginTop = '4px';
+        charCount.style.textAlign = 'right';
+        const updateCharCount = () => {
+            const current = textarea.value.length;
+            charCount.textContent = `${current}/${maxLength} 字`;
+            if (current > maxLength * 0.9) {
+                charCount.style.color = '#ff6b6b';
+            } else {
+                charCount.style.color = '#666';
+            }
+        };
+        updateCharCount();
+        
+        textarea.addEventListener('input', () => {
+            area.action[id] = textarea.value;
+            updateCharCount();
+            renderJsonPreview(state);
+            if (state.scheduleAutosave) state.scheduleAutosave();
+            
+            // 廣播區域更新（action 改變）
+            const currentRM = getCurrentRichMenu(state);
+            broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
+        });
+        
+        group.appendChild(lab);
+        group.appendChild(textarea);
+        group.appendChild(charCount);
+        fields.appendChild(group);
+    };
+
     if (type === 'uri') {
         addField('URL 或電話號碼', 'uri', area.action.uri);
     } else if (type === 'message') {
         addField('文字訊息', 'text', area.action.text);
     } else if (type === 'postback') {
         addField('資料 payload', 'data', area.action.data);
-        addField('文字顯示（選填）', 'displayText', area.action.displayText);
+        addTextarea('文字顯示（選填）', 'displayText', area.action.displayText, 300);
     } else if (type === 'richmenuswitch') {
         // Show dropdown of aliases from current project
         const aliasOptions = [{ value: '', text: '請選擇 Rich Menu' }];
