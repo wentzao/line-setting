@@ -198,16 +198,46 @@ def handle_richmenu_delete(data):
 def handle_cursor_move(data):
     """游標移動"""
     project_id = str(data.get('project_id'))
-    x = data.get('x')
-    y = data.get('y')
+    rich_menu_id = data.get('rich_menu_id')  # 新增
+    relative_x = data.get('relative_x')  # 改為相對座標
+    relative_y = data.get('relative_y')  # 改為相對座標
     user_id = data.get('user_id', request.sid)
     user_name = data.get('user_name', 'Anonymous')
     color = data.get('color', '#02a568')
     
     # 廣播到房間內其他使用者
     emit('cursor:move', {
-        'x': x,
-        'y': y,
+        'rich_menu_id': rich_menu_id,  # 新增
+        'relative_x': relative_x,  # 改為相對座標
+        'relative_y': relative_y,  # 改為相對座標
+        'user_id': user_id,
+        'user_name': user_name,
+        'color': color
+    }, room=project_id, skip_sid=request.sid)
+
+@socketio.on('cursor:leave')
+def handle_cursor_leave(data):
+    """游標離開 Canvas"""
+    project_id = str(data.get('project_id'))
+    rich_menu_id = data.get('rich_menu_id')
+    user_id = data.get('user_id', request.sid)
+    
+    emit('cursor:leave', {
+        'rich_menu_id': rich_menu_id,
+        'user_id': user_id
+    }, room=project_id, skip_sid=request.sid)
+
+@socketio.on('tab:switch')
+def handle_tab_switch(data):
+    """Tab 切換"""
+    project_id = str(data.get('project_id'))
+    rich_menu_id = data.get('rich_menu_id')
+    user_id = data.get('user_id', request.sid)
+    user_name = data.get('user_name', 'Anonymous')
+    color = data.get('color', '#02a568')
+    
+    emit('tab:switch', {
+        'rich_menu_id': rich_menu_id,
         'user_id': user_id,
         'user_name': user_name,
         'color': color

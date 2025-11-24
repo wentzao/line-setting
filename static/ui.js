@@ -5,10 +5,12 @@ const mainContent = document.querySelector('main');
 // === Socket.IO 初始化 ===
 let socket = null;
 let currentProjectId = null;
+let currentRichMenuId = null;  // 新增：追蹤當前編輯的 Rich Menu ID
 let myUserId = generateUserId();
 let myUserName = '使用者' + Math.floor(Math.random() * 1000);
 let myColor = generateRandomColor();
-let remoteCursors = {};  // {userId: {x, y, name, color, element}}
+let remoteCursors = {};  // {userId: {richMenuId, element, color, name}}
+let activeEditors = {};  // 新增：追蹤其他用戶正在編輯的 Rich Menu {userId: {richMenuId, userName, color}}
 
 function generateUserId() {
     return 'user_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
@@ -21,25 +23,36 @@ function generateRandomColor() {
 
 function initSocketIO() {
     if (socket) return;
-    
+
     socket = io({
         transports: ['websocket', 'polling']
     });
-    
+
     socket.on('connect', () => {
         console.log('✓ Socket.IO 已連線');
     });
-    
+
     socket.on('disconnect', () => {
         console.log('✗ Socket.IO 已斷線');
     });
-    
+
     // 使用者加入/離開
     socket.on('user:joined', (data) => {
         console.log(`${data.user_name} 加入專案`);
         showNotification(`${data.user_name} 加入協作`, 'info');
+
+        // 當有新用戶加入時，廣播我的當前狀態，讓對方知道我在哪個 Tab
+        if (currentProjectId && currentRichMenuId) {
+            socket.emit('tab:switch', {
+                project_id: currentProjectId,
+                rich_menu_id: currentRichMenuId,
+                user_id: myUserId,
+                user_name: myUserName,
+                color: myColor
+            });
+        }
     });
-    
+
     socket.on('user:left', (data) => {
         console.log(`${data.user_name} 離開專案`);
         // 移除游標
@@ -47,48 +60,54 @@ function initSocketIO() {
             remoteCursors[data.user_id].element.remove();
             delete remoteCursors[data.user_id];
         }
+
+        // 移除活躍編輯者狀態並更新指示器
+        if (activeEditors[data.user_id]) {
+            delete activeEditors[data.user_id];
+            updateTabIndicators();
+        }
     });
-    
+
     // Rich Menu 同步
     socket.on('richmenu:update_areas', (data) => {
         if (data.sender === myUserId) return;
         console.log('收到區域更新', data);
-        
+
         // 找到對應的 Rich Menu 並更新
         if (!window.editorState) return;
         const state = window.editorState;
         const currentRM = getCurrentRichMenu(state);
-        
+
         // 確認是否為當前正在編輯的 Rich Menu
         if (currentRM && currentRM.id === data.rich_menu_id) {
             // 更新 areas
             currentRM.metadata.areas = data.areas;
-            
+
             // 重繪畫布
             drawOverlay(state);
-            
+
             // 如果當前選中的區域已被刪除，取消選擇
             if (state.selectedAreaIndex >= currentRM.metadata.areas.length) {
                 state.selectedAreaIndex = -1;
                 updateActionPanel(state);
             }
-            
+
             // 更新 JSON 預覽
             renderJsonPreview(state);
-            
+
             showNotification('其他使用者更新了區域', 'info');
         }
     });
-    
+
     socket.on('richmenu:update_metadata', async (data) => {
         if (data.sender === myUserId) return;
         console.log('收到 metadata 更新', data);
-        
+
         // 找到對應的 Rich Menu 並更新
         if (!window.editorState) return;
         const state = window.editorState;
         const currentRM = getCurrentRichMenu(state);
-        
+
         // 確認是否為當前正在編輯的 Rich Menu
         if (currentRM && currentRM.id === data.rich_menu_id) {
             // 更新 metadata
@@ -114,7 +133,7 @@ function initSocketIO() {
             if (data.metadata.selected !== undefined) {
                 currentRM.metadata.selected = data.metadata.selected;
             }
-            
+
             // 處理圖片更新（從服務器加載）
             if (data.metadata.imagePath) {
                 try {
@@ -122,13 +141,13 @@ function initSocketIO() {
                     const imageUrl = `${API_BASE}/uploads/${data.metadata.imagePath}`;
                     const response = await fetch(imageUrl);
                     const blob = await response.blob();
-                    
+
                     // 轉換為 dataUrl
                     const reader = new FileReader();
                     reader.onloadend = async () => {
                         const dataUrl = reader.result;
                         const dim = await getImageDimensions(dataUrl);
-                        
+
                         currentRM.image = {
                             name: data.metadata.imageName || data.metadata.imagePath,
                             type: blob.type,
@@ -138,14 +157,14 @@ function initSocketIO() {
                             path: data.metadata.imagePath,
                             thumbnail: data.metadata.thumbnailPath
                         };
-                        
+
                         // 重繪背景
                         await setupCanvas(state);
-                        
+
                         // 更新 tab 名稱和 JSON 預覽
                         renderTabs(state);
                         renderJsonPreview(state);
-                        
+
                         showNotification('其他使用者更新了圖片', 'info');
                     };
                     reader.readAsDataURL(blob);
@@ -158,40 +177,99 @@ function initSocketIO() {
                 currentRM.image = data.metadata.image;
                 // 重繪背景
                 await setupCanvas(state);
-                
+
                 // 更新 tab 名稱
                 renderTabs(state);
-                
+
                 // 更新 JSON 預覽
                 renderJsonPreview(state);
-                
+
                 showNotification('其他使用者更新了設定', 'info');
             } else {
                 // 更新 tab 名稱
                 renderTabs(state);
-                
+
                 // 更新 JSON 預覽
                 renderJsonPreview(state);
-                
+
                 showNotification('其他使用者更新了設定', 'info');
             }
         }
     });
-    
-    // 游標同步
+
+    // 游標移動同步
     socket.on('cursor:move', (data) => {
         if (data.user_id === myUserId) return;
-        drawRemoteCursor(data);
+
+        // 檢查是否在同一個 Rich Menu
+        if (!window.editorState) return;
+        const state = window.editorState;
+        const currentRM = getCurrentRichMenu(state);
+
+        if (!currentRM || currentRM.id !== data.rich_menu_id) {
+            // 不同 Rich Menu，隱藏游標
+            if (remoteCursors[data.user_id]) {
+                remoteCursors[data.user_id].element.style.display = 'none';
+            }
+            return;
+        }
+
+        // 轉換相對座標為絕對座標
+        const canvas = document.getElementById('richmenu-canvas-overlay');
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const absoluteX = rect.left + (data.relative_x * rect.width);
+        const absoluteY = rect.top + (data.relative_y * rect.height);
+
+        drawRemoteCursor({
+            ...data,
+            x: absoluteX,
+            y: absoluteY
+        });
+    });
+
+    // 游標離開事件
+    socket.on('cursor:leave', (data) => {
+        if (data.user_id === myUserId) return;
+
+        const cursor = remoteCursors[data.user_id];
+        if (cursor && cursor.element) {
+            // 淡化消失動畫
+            cursor.element.style.transition = 'opacity 0.3s ease';
+            cursor.element.style.opacity = '0';
+
+            // 300ms 後完全隱藏
+            setTimeout(() => {
+                cursor.element.style.display = 'none';
+                cursor.element.style.opacity = '1'; // 重置以便下次顯示
+            }, 300);
+        }
+    });
+
+    // Tab 切換事件（其他用戶切換 Tab）
+    socket.on('tab:switch', (data) => {
+        if (data.user_id === myUserId) return;
+
+        // 更新活躍編輯者列表
+        activeEditors[data.user_id] = {
+            richMenuId: data.rich_menu_id,
+            userName: data.user_name,
+            color: data.color
+        };
+
+        // 更新 Tab 指示器
+        updateTabIndicators();
     });
 }
 
 function joinProject(projectId) {
     if (!socket) initSocketIO();
-    
+
     if (currentProjectId) {
         socket.emit('leave_project', { project_id: currentProjectId });
     }
-    
+
     currentProjectId = projectId;
     socket.emit('join_project', {
         project_id: projectId,
@@ -228,12 +306,13 @@ function broadcastMetadataUpdate(richMenuId, metadata) {
     });
 }
 
-function broadcastCursorMove(x, y) {
-    if (!socket || !currentProjectId) return;
+function broadcastCursorMove(relativeX, relativeY) {
+    if (!socket || !currentProjectId || !currentRichMenuId) return;
     socket.emit('cursor:move', {
         project_id: currentProjectId,
-        x: x,
-        y: y,
+        rich_menu_id: currentRichMenuId,  // 新增
+        relative_x: relativeX,  // 改為相對座標 (0-1)
+        relative_y: relativeY,  // 改為相對座標 (0-1)
         user_id: myUserId,
         user_name: myUserName,
         color: myColor
@@ -244,9 +323,9 @@ function drawRemoteCursor(data) {
     // 使用整個 main content 作為游標容器
     const container = document.querySelector('main') || document.body;
     if (!container) return;
-    
+
     let cursor = remoteCursors[data.user_id];
-    
+
     if (!cursor) {
         // 建立新游標
         const el = document.createElement('div');
@@ -278,15 +357,19 @@ function drawRemoteCursor(data) {
         cursor = { element: el, color: data.color, name: data.user_name };
         remoteCursors[data.user_id] = cursor;
     }
-    
+
     // 更新位置（使用固定定位的絕對座標）
     cursor.element.style.left = data.x + 'px';
     cursor.element.style.top = data.y + 'px';
+
+    // 確保游標可見（修復離開後回來不顯示的問題）
+    cursor.element.style.display = 'block';
+    cursor.element.style.opacity = '1';
 }
 
 function showNotification(message, type = 'info') {
     console.log(`[${type.toUpperCase()}] ${message}`);
-    
+
     // 根據類型選擇背景顏色
     let backgroundColor;
     if (type === 'info') {
@@ -296,7 +379,7 @@ function showNotification(message, type = 'info') {
     } else {
         backgroundColor = '#02a568';  // 綠色 (success)
     }
-    
+
     // 建立視覺化通知
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -316,7 +399,7 @@ function showNotification(message, type = 'info') {
     `;
     notification.textContent = message;
     document.body.appendChild(notification);
-    
+
     // 3 秒後自動移除
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease';
@@ -324,10 +407,78 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
+/**
+ * 更新 Tab 編輯狀態指示器
+ */
+function updateTabIndicators() {
+    if (!window.editorState) return;
+
+    const state = window.editorState;
+    const tabsContainer = document.querySelector('.rich-menu-tabs');
+    if (!tabsContainer) return;
+
+    // 遍歷所有 Rich Menu
+    state.project.richMenus.forEach((rm, index) => {
+        const tabEl = tabsContainer.querySelector(`[data-tab-index="${index}"]`);
+        if (!tabEl) return;
+
+        // 移除現有的指示器
+        const existingIndicator = tabEl.querySelector('.tab-editor-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+
+        // 找出正在編輯此 Rich Menu 的用戶
+        const editors = Object.values(activeEditors)
+            .filter(editor => editor.richMenuId === rm.id);
+
+        if (editors.length > 0) {
+            // 創建指示器
+            const indicator = document.createElement('span');
+            indicator.className = 'tab-editor-indicator';
+            indicator.style.cssText = `
+                display: inline-block;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: ${editors[0].color};
+                margin-right: 6px;
+                animation: pulse 2s infinite;
+                box-shadow: 0 0 4px ${editors[0].color};
+            `;
+
+            // 加入 tooltip 顯示用戶名
+            indicator.title = editors.map(e => e.userName).join(', ') + ' 正在編輯';
+
+            // 插入到 Tab 文字前面
+            tabEl.insertBefore(indicator, tabEl.firstChild);
+        }
+    });
+}
+
+// 添加 CSS 動畫
+if (!document.getElementById('tab-indicator-animation-style')) {
+    const style = document.createElement('style');
+    style.id = 'tab-indicator-animation-style';
+    style.textContent = `
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.6;
+                transform: scale(1.1);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 // 節流函式
 function throttle(func, limit) {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;
@@ -336,16 +487,11 @@ function throttle(func, limit) {
     };
 }
 
-// 初始化 Socket.IO 和全域游標追蹤
+// 初始化 Socket.IO
 document.addEventListener('DOMContentLoaded', () => {
     initSocketIO();
-    
-    // 全域游標追蹤（節流）
-    const throttledGlobalCursorMove = throttle((e) => {
-        broadcastCursorMove(e.clientX, e.clientY);
-    }, 50);
-    
-    document.addEventListener('mousemove', throttledGlobalCursorMove);
+
+    // 移除全域游標追蹤，改為在 Canvas 上追蹤（在 setupCanvas 中設定）
 });
 
 // === 原有的 UI 邏輯 ===
@@ -425,7 +571,7 @@ async function wireAddAccountButton() {
         errorEl.textContent = '';
         const token = tokenInput.value.trim();
         const accountName = nameInput.value.trim();
-        
+
         if (!accountName) {
             errorEl.textContent = '請輸入帳號名稱';
             return;
@@ -434,14 +580,14 @@ async function wireAddAccountButton() {
             errorEl.textContent = '請先輸入 Channel Access Token';
             return;
         }
-        
+
         // Check if account name already exists
         const exists = await getAccount(accountName);
         if (exists) {
             errorEl.textContent = '此帳號名稱已存在，請使用其他名稱';
             return;
         }
-        
+
         button.disabled = true;
         button.textContent = '驗證中...';
         try {
@@ -450,7 +596,7 @@ async function wireAddAccountButton() {
                 errorEl.textContent = `驗證失敗：${result.message || result.status || '未知錯誤'}`;
                 return;
             }
-            
+
             const accountRecord = { accountId: accountName, channelAccessToken: token };
             await saveAccount(accountRecord);
             tokenInput.value = '';
@@ -469,7 +615,7 @@ async function wireAddAccountButton() {
 async function refreshAccountCards() {
     const grid = document.getElementById('accounts-grid');
     if (!grid) return;
-    
+
     const accounts = await listAccounts();
     grid.innerHTML = '';
 
@@ -586,19 +732,19 @@ function closeAddAccountModal() {
 async function openAccountSettingsModal() {
     const modal = document.getElementById('account-settings-modal');
     if (!modal) return;
-    
+
     const selectedAccountId = getSelectedAccountId();
     if (!selectedAccountId) return;
-    
+
     // 載入當前帳號資訊
     const account = await getAccount(selectedAccountId);
-    
+
     // 填入表單
     document.getElementById('settings-account-name').value = selectedAccountId;
     document.getElementById('settings-channel-token').value = account ? account.channelAccessToken : '';
     document.getElementById('settings-error').textContent = '';
     document.getElementById('settings-success').textContent = '';
-    
+
     // 顯示模態框
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
@@ -618,13 +764,13 @@ function wireAccountSettingsModal() {
     if (closeBtn) {
         closeBtn.addEventListener('click', closeAccountSettingsModal);
     }
-    
+
     // 取消按鈕
     const cancelBtn = document.getElementById('cancel-account-settings');
     if (cancelBtn) {
         cancelBtn.addEventListener('click', closeAccountSettingsModal);
     }
-    
+
     // Token 可見性切換
     const toggleBtn = document.getElementById('toggle-token-visibility');
     const tokenInput = document.getElementById('settings-channel-token');
@@ -641,7 +787,7 @@ function wireAccountSettingsModal() {
             }
         });
     }
-    
+
     // 儲存按鈕
     const saveBtn = document.getElementById('save-account-settings-btn');
     if (saveBtn) {
@@ -649,19 +795,19 @@ function wireAccountSettingsModal() {
             const errorEl = document.getElementById('settings-error');
             const successEl = document.getElementById('settings-success');
             const tokenInput = document.getElementById('settings-channel-token');
-            
+
             errorEl.textContent = '';
             successEl.textContent = '';
-            
+
             const newToken = tokenInput.value.trim();
             if (!newToken) {
                 errorEl.textContent = '請輸入 Channel Access Token';
                 return;
             }
-            
+
             saveBtn.disabled = true;
             saveBtn.textContent = '驗證中...';
-            
+
             try {
                 // 驗證新的 Token
                 const result = await validateChannelAccessToken(newToken);
@@ -669,18 +815,18 @@ function wireAccountSettingsModal() {
                     errorEl.textContent = `驗證失敗：${result.message || result.status || '未知錯誤'}`;
                     return;
                 }
-                
+
                 // 更新帳號 Token
                 const selectedAccountId = getSelectedAccountId();
                 await updateAccountToken(selectedAccountId, newToken);
-                
+
                 successEl.textContent = '✓ Token 已成功更新';
-                
+
                 // 2秒後自動關閉
                 setTimeout(() => {
                     closeAccountSettingsModal();
                 }, 2000);
-                
+
             } catch (e) {
                 errorEl.textContent = e.message || '發生未知錯誤';
             } finally {
@@ -689,7 +835,7 @@ function wireAccountSettingsModal() {
             }
         });
     }
-    
+
     // 點擊背景關閉
     const modal = document.getElementById('account-settings-modal');
     if (modal) {
@@ -867,7 +1013,7 @@ async function refreshProjectCards() {
         // 優先使用 richMenuCount，其次是 richMenus.length
         const richMenuCount = project.richMenuCount ?? (project.richMenus ? project.richMenus.length : 0);
         const lastUpdated = project.updatedAt ? new Date(project.updatedAt).toLocaleDateString('zh-TW') : '未知';
-        
+
         card.innerHTML = `
             <div class="card-header">
                 <div class="project-icon">📁</div>
@@ -900,8 +1046,8 @@ function wireProjectCards() {
             const card = e.target.closest('.project-card');
             if (card && card.dataset.projectId) {
                 const projectId = card.dataset.projectId;
-        setSelectedProjectId(projectId);
-        renderEditor(projectId);
+                setSelectedProjectId(projectId);
+                renderEditor(projectId);
             }
         });
     }
@@ -1013,17 +1159,17 @@ function wireAddRichMenuModal(state) {
     if (createBtn) {
         createBtn.addEventListener('click', async () => {
             const errorEl = document.getElementById('add-richmenu-error');
-            
+
             const alias = (aliasInput.value || '').trim();
             const name = alias; // 顯示名稱移除，名稱即採用別名
-            
+
             // 驗證輸入
             const validationError = validateRichMenuInput(alias, state.project.richMenus);
             if (validationError) {
                 errorEl.textContent = validationError;
                 return;
             }
-            
+
             try {
                 // 建立新的 Rich Menu
                 const newRM = {
@@ -1039,20 +1185,20 @@ function wireAddRichMenuModal(state) {
                         areas: []
                     }
                 };
-                
+
                 state.project.richMenus.push(newRM);
                 state.currentTabIndex = state.project.richMenus.length - 1;
-                
+
                 // 更新 UI
                 renderTabs(state);
                 loadCurrentTab(state);
-                
+
                 // 自動儲存
                 if (state.scheduleAutosave) state.scheduleAutosave();
-                
+
                 // 關閉 modal
                 closeAddRichMenuModal();
-                
+
             } catch (e) {
                 errorEl.textContent = e.message || '建立 Rich Menu 失敗';
             }
@@ -1068,21 +1214,21 @@ function validateRichMenuInput(alias, existingRichMenus) {
     if (alias.length > 50) {
         return '別名長度不能超過 50 字元';
     }
-    
+
     // 檢查別名是否重複
     const trimmedAlias = alias.trim();
     const duplicateAlias = existingRichMenus.find(rm => rm.alias && rm.alias.trim() === trimmedAlias);
     if (duplicateAlias) {
         return '此別名已存在，請使用不同的別名';
     }
-    
+
     return '';
 }
 
 
 async function renderEditor(projectId) {
     const project = await getProject(projectId);
-    
+
     // Initialize project structure for multiple Rich Menus
     if (!project.richMenus || project.richMenus.length === 0) {
         project.richMenus = [{
@@ -1300,9 +1446,12 @@ async function renderEditor(projectId) {
         selectedAreaIndex: -1,
         scale: 1,
     };
-    
+
     // 將 state 暴露到全域，供 Socket.IO 事件處理器使用
     window.editorState = state;
+
+    // 設定當前編輯的 Rich Menu ID（用於游標追蹤）
+    currentRichMenuId = state.project.richMenus[state.currentTabIndex].id;
 
     renderTabs(state);
     loadCurrentTab(state);
@@ -1338,7 +1487,7 @@ async function renderEditor(projectId) {
         setModalVisible(true);
         publishGroup.style.display = '';
         usersGroup.style.display = (document.querySelector('input[name="publish-target"]:checked').value === 'users') ? '' : 'none';
-        
+
         // Populate default menu selector with all Rich Menus in the project
         const defaultMenuSelect = document.getElementById('default-menu-select');
         defaultMenuSelect.innerHTML = '<option value="">不設定預設</option>';
@@ -1397,18 +1546,18 @@ async function renderEditor(projectId) {
             const scope = document.querySelector('input[name="upload-scope"]:checked').value;
             if (scope === 'all') {
                 await uploadAllRichMenus(state, (msg) => statusEl.textContent = msg);
-                
+
                 // Get default menu selection
                 const defaultMenuSelect = document.getElementById('default-menu-select');
                 const defaultMenuIndex = defaultMenuSelect.value;
-                
+
                 // Set default Rich Menu if selected
                 if (defaultMenuIndex !== '') {
                     const account = await getAccount(state.project.accountId);
                     const token = account.channelAccessToken;
                     const selectedRM = state.project.richMenus[parseInt(defaultMenuIndex)];
                     const richMenuId = selectedRM && selectedRM.richMenuId;
-                    
+
                     if (richMenuId) {
                         statusEl.textContent = '正在設定預設選單...';
                         const setDef = await setDefaultRichMenu(token, richMenuId);
@@ -1418,14 +1567,14 @@ async function renderEditor(projectId) {
                         throw new Error('選擇的 Rich Menu 尚未上傳成功');
                     }
                 }
-                
+
                 // After bulk upload, apply publish choice
                 const target = document.querySelector('input[name="publish-target"]:checked').value;
                 const userIds = target === 'users' ? (document.getElementById('user-ids').value || '')
                     .split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
                 const account = await getAccount(state.project.accountId);
                 const token = account.channelAccessToken;
-                
+
                 if (target === 'users' && userIds.length > 0) {
                     // Bind to specific users (use current tab's menu if not using default selector)
                     const currentRM = getCurrentRichMenu(state);
@@ -1454,7 +1603,7 @@ async function renderEditor(projectId) {
         leaveProject();  // 離開 Socket.IO 房間
         renderProjectSelectionScreen();
     });
-    
+
     // 加入專案房間
     joinProject(projectId);
 
@@ -1482,7 +1631,7 @@ async function renderEditor(projectId) {
 
     async function performAutosave() {
         try {
-        await saveProject(state.project);
+            await saveProject(state.project);
             setSaved();
         } catch (e) {
             setSaveError(e);
@@ -1499,7 +1648,7 @@ async function renderEditor(projectId) {
 function renderTabs(state) {
     const tabsEl = document.getElementById('richmenu-tabs');
     tabsEl.innerHTML = '';
-    
+
     state.project.richMenus.forEach((rm, index) => {
         const tab = document.createElement('div');
         tab.className = `tab ${index === state.currentTabIndex ? 'active' : ''}`;
@@ -1524,11 +1673,28 @@ function renderTabs(state) {
         openAddRichMenuModal(state);
     });
     tabsEl.appendChild(addBtn);
+
+    // 重新渲染後更新指示器
+    updateTabIndicators();
 }
 
 function loadCurrentTab(state) {
     const currentRM = state.project.richMenus[state.currentTabIndex];
     if (!currentRM) return;
+
+    // 更新當前編輯的 Rich Menu ID（用於游標追蹤）
+    currentRichMenuId = currentRM.id;
+
+    // 廣播 Tab 切換事件
+    if (socket && currentProjectId) {
+        socket.emit('tab:switch', {
+            project_id: currentProjectId,
+            rich_menu_id: currentRM.id,
+            user_id: myUserId,
+            user_name: myUserName,
+            color: myColor
+        });
+    }
 
     // 保存當前滾動位置（頁面和編輯區）
     const pageScrollTop = window.pageYOffset || document.documentElement.scrollTop;
@@ -1546,7 +1712,7 @@ function loadCurrentTab(state) {
 
     // Load metadata into form
     document.getElementById('rm-chatbar').value = currentRM.metadata.chatBarText || '';
-    
+
     // Update character counter
     const chatbarCounterEl = document.getElementById('chatbar-counter');
     if (chatbarCounterEl) {
@@ -1560,7 +1726,7 @@ function loadCurrentTab(state) {
             chatbarCounterEl.classList.add('warning');
         }
     }
-    
+
     const idEl = document.getElementById('rm-id');
     if (idEl) idEl.value = currentRM.richMenuId || '';
     const aliasEl = document.getElementById('rm-alias-settings');
@@ -1570,19 +1736,19 @@ function loadCurrentTab(state) {
 
     // Reset area selection and action type
     state.selectedAreaIndex = -1;
-    
+
     // 更新動作設定面板（包含禁用狀態）
     updateActionPanel(state);
-    
+
     // Re-render everything for current tab
     setupCanvas(state);
     renderJsonPreview(state);
-    
+
     // 恢復滾動位置（使用 requestAnimationFrame 確保 DOM 已更新）
     requestAnimationFrame(() => {
         // 恢復頁面滾動位置
         window.scrollTo(pageScrollLeft, pageScrollTop);
-        
+
         // 恢復編輯區滾動位置
         if (editorGrid) {
             editorGrid.scrollTop = editorScrollTop;
@@ -1605,7 +1771,7 @@ function wireTabControls(state) {
     const renderSettingsTabs = () => {
         const tabsContainer = document.getElementById('settings-tabs');
         tabsContainer.innerHTML = '';
-        
+
         // 專案設定 Tab
         const projectTab = document.createElement('button');
         projectTab.className = `settings-tab${currentSettingsTab === 0 ? ' active' : ''}`;
@@ -1616,7 +1782,7 @@ function wireTabControls(state) {
             renderSettingsContent();
         });
         tabsContainer.appendChild(projectTab);
-        
+
         // 各個 Rich Menu 的設定 Tab
         state.project.richMenus.forEach((rm, index) => {
             const tab = document.createElement('button');
@@ -1635,7 +1801,7 @@ function wireTabControls(state) {
         const bodyContainer = document.getElementById('settings-modal-body');
         document.getElementById('settings-status').textContent = '';
         document.getElementById('settings-status').className = '';
-        
+
         if (currentSettingsTab === 0) {
             // 專案設定
             bodyContainer.innerHTML = `
@@ -1653,34 +1819,34 @@ function wireTabControls(state) {
                     <small class="grid-note" style="color: #dc2626; font-weight: 600;">⚠️ 危險操作：將永久刪除此專案及所有 Rich Menu（不影響 LINE 伺服器）</small>
                 </div>
             `;
-            
+
             // 儲存專案名稱
             document.getElementById('save-project-name').addEventListener('click', async () => {
                 const newName = document.getElementById('project-name-settings').value.trim();
                 if (!newName) {
                     alert('專案名稱不能為空');
-            return;
-        }
-                
+                    return;
+                }
+
                 state.project.name = newName;
                 await saveProject(state.project);
-                
+
                 // 更新頁面標題
                 const pageTitle = document.querySelector('.page-title');
                 if (pageTitle) {
                     pageTitle.innerHTML = `專案：<strong>${escapeHtml(newName)}</strong>`;
                 }
-                
+
                 const statusEl = document.getElementById('settings-status');
                 statusEl.textContent = '已儲存專案名稱';
                 statusEl.className = 'success';
             });
-            
+
             // 刪除專案
             document.getElementById('delete-project').addEventListener('click', async () => {
                 if (!confirm(`確定要刪除專案「${state.project.name}」嗎？此操作無法復原！`)) return;
                 if (!confirm('再次確認：所有 Rich Menu 將被刪除（不影響 LINE 伺服器）')) return;
-                
+
                 try {
                     await deleteProject(state.project.projectId);
                     // 返回專案列表
@@ -1693,7 +1859,7 @@ function wireTabControls(state) {
             // Rich Menu 設定
             const rmIndex = currentSettingsTab - 1;
             const currentRM = state.project.richMenus[rmIndex];
-            
+
             bodyContainer.innerHTML = `
                 <div class="form-group">
                     <label for="rm-alias-settings">Alias（別名）</label>
@@ -1723,86 +1889,86 @@ function wireTabControls(state) {
                     <small class="grid-note" style="color: #dc2626; font-weight: 600;">⚠️ 危險操作：將從專案中永久移除此 Rich Menu（不影響遠端）</small>
                 </div>
             `;
-            
+
             // Alias 輸入自動保存
             document.getElementById('rm-alias-settings').addEventListener('input', (e) => {
                 currentRM.alias = e.target.value;
-                
+
                 // 更新 tab 名稱和 metadata.name
                 const autoName = currentRM.alias || `Rich Menu ${rmIndex + 1}`;
                 currentRM.name = autoName;
                 currentRM.metadata.name = autoName;
-                
+
                 renderTabs(state);
                 renderSettingsTabs();
                 if (state.scheduleAutosave) state.scheduleAutosave();
             });
-            
+
             // 取得 richMenuId
-    document.getElementById('fetch-rm-id').addEventListener('click', async () => {
+            document.getElementById('fetch-rm-id').addEventListener('click', async () => {
                 const statusEl = document.getElementById('settings-status');
-        try {
+                try {
                     statusEl.textContent = '查詢中...';
                     statusEl.className = '';
-            const account = await getAccount(state.project.accountId);
-            if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
-            if (!currentRM.metadata || !currentRM.metadata.name) throw new Error('請先填寫名稱，並確保已上傳建立');
-            const listed = await listRichMenus(account.channelAccessToken);
-            if (!listed.ok) throw new Error(listed.message || `列出 Rich Menu 失敗 ${listed.status}`);
-            const found = (listed.data.richmenus || []).find(m => m.name === currentRM.metadata.name);
-            if (!found) throw new Error('找不到同名的 Rich Menu，請先上傳或確認名稱');
-            currentRM.richMenuId = found.richMenuId;
-            document.getElementById('rm-id').value = currentRM.richMenuId;
-            await saveProject(state.project);
+                    const account = await getAccount(state.project.accountId);
+                    if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
+                    if (!currentRM.metadata || !currentRM.metadata.name) throw new Error('請先填寫名稱，並確保已上傳建立');
+                    const listed = await listRichMenus(account.channelAccessToken);
+                    if (!listed.ok) throw new Error(listed.message || `列出 Rich Menu 失敗 ${listed.status}`);
+                    const found = (listed.data.richmenus || []).find(m => m.name === currentRM.metadata.name);
+                    if (!found) throw new Error('找不到同名的 Rich Menu，請先上傳或確認名稱');
+                    currentRM.richMenuId = found.richMenuId;
+                    document.getElementById('rm-id').value = currentRM.richMenuId;
+                    await saveProject(state.project);
                     statusEl.textContent = '已取得 richMenuId';
                     statusEl.className = 'success';
-        } catch (e) {
+                } catch (e) {
                     statusEl.textContent = e.message || '取得 richMenuId 失敗';
                     statusEl.className = 'error';
-        }
-    });
+                }
+            });
 
             // 取消預設
-    document.getElementById('unset-default').addEventListener('click', async () => {
+            document.getElementById('unset-default').addEventListener('click', async () => {
                 const statusEl = document.getElementById('settings-status');
-        try {
+                try {
                     statusEl.textContent = '處理中...';
                     statusEl.className = '';
-            const account = await getAccount(state.project.accountId);
-            if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
-            const res = await unsetDefaultRichMenu(account.channelAccessToken);
-            if (!res.ok) throw new Error(res.message || `取消預設失敗 ${res.status}`);
+                    const account = await getAccount(state.project.accountId);
+                    if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
+                    const res = await unsetDefaultRichMenu(account.channelAccessToken);
+                    if (!res.ok) throw new Error(res.message || `取消預設失敗 ${res.status}`);
                     statusEl.textContent = '已取消預設 Rich Menu';
                     statusEl.className = 'success';
-        } catch (e) {
+                } catch (e) {
                     statusEl.textContent = e.message || '取消預設失敗';
                     statusEl.className = 'error';
-        }
-    });
+                }
+            });
 
             // 刪除遠端
-    document.getElementById('delete-remote').addEventListener('click', async () => {
+            document.getElementById('delete-remote').addEventListener('click', async () => {
                 const statusEl = document.getElementById('settings-status');
-        try {
+                try {
                     if (!currentRM.richMenuId) throw new Error('此分頁尚未有 richMenuId，請先點「取得 richMenuId」');
-            if (!confirm(`確定要刪除遠端 Rich Menu ${currentRM.richMenuId} 嗎？`)) return;
+                    if (!confirm(`確定要刪除遠端 Rich Menu ${currentRM.richMenuId} 嗎？`)) return;
                     statusEl.textContent = '刪除中...';
                     statusEl.className = '';
-            const account = await getAccount(state.project.accountId);
-            if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
-            const del = await deleteRichMenu(account.channelAccessToken, currentRM.richMenuId);
-            if (!del.ok) throw new Error(del.message || `刪除失敗 ${del.status}`);
+                    const account = await getAccount(state.project.accountId);
+                    if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
+                    const del = await deleteRichMenu(account.channelAccessToken, currentRM.richMenuId);
+                    if (!del.ok) throw new Error(del.message || `刪除失敗 ${del.status}`);
                     currentRM.richMenuId = '';
                     document.getElementById('rm-id').value = '';
                     await saveProject(state.project);
                     statusEl.textContent = '已刪除遠端 Rich Menu';
                     statusEl.className = 'success';
-        } catch (e) {
+                } catch (e) {
                     statusEl.textContent = e.message || '刪除遠端失敗';
                     statusEl.className = 'error';
                 }
             });
-            
+
             // 移除 Rich Menu
             document.getElementById('delete-tab').addEventListener('click', () => {
                 if (state.project.richMenus.length <= 1) {
@@ -1814,12 +1980,12 @@ function wireTabControls(state) {
                     state.currentTabIndex = Math.min(state.currentTabIndex, state.project.richMenus.length - 1);
                     renderTabs(state);
                     loadCurrentTab(state);
-                    
+
                     // 重新渲染設定 tabs
                     currentSettingsTab = 0;
                     renderSettingsTabs();
                     renderSettingsContent();
-                    
+
                     if (state.scheduleAutosave) state.scheduleAutosave();
                 }
             });
@@ -1840,7 +2006,7 @@ function wireTabControls(state) {
     };
 
     openSettingsBtn.addEventListener('click', () => setSettingsModalVisible(true));
-    
+
     closeSettingsBtn.addEventListener('click', () => setSettingsModalVisible(false));
     closeSettingsX.addEventListener('click', () => setSettingsModalVisible(false));
     settingsModal.addEventListener('click', (e) => {
@@ -1930,12 +2096,12 @@ function wireMetadataInputs(state) {
         currentRM.metadata.chatBarText = chatEl.value;
         // All Rich Menus are now always expanded (selected: true)
         currentRM.metadata.selected = true;
-        
+
         // Update tab name with alias or fallback
         currentRM.name = autoName;
         renderTabs(state);
         renderJsonPreview(state);
-        
+
         // If size changed, re-render canvas to fit
         setupCanvas(state);
 
@@ -1944,7 +2110,7 @@ function wireMetadataInputs(state) {
 
         // autosave
         if (state.scheduleAutosave) state.scheduleAutosave();
-        
+
         // 廣播 metadata 更新
         broadcastMetadataUpdate(currentRM.id, {
             name: currentRM.metadata.name,
@@ -1955,7 +2121,7 @@ function wireMetadataInputs(state) {
     };
 
     chatEl.addEventListener('input', sync);
-    
+
     // Initialize counter on first load
     updateCharCounter();
 }
@@ -1983,12 +2149,12 @@ async function onImageSelected(e, state) {
     await setupCanvas(state);
     renderJsonPreview(state);
     if (state.scheduleAutosave) state.scheduleAutosave();
-    
+
     // 上傳圖片到服務器（這樣其他用戶才能訪問）
     try {
         await uploadImageToBackend(currentRM.id, currentRM.image);
         console.log('圖片已上傳到服務器');
-        
+
         // 廣播圖片更新（使用圖片路徑而不是 dataUrl）
         broadcastMetadataUpdate(currentRM.id, {
             imagePath: currentRM.image.path,
@@ -2036,15 +2202,15 @@ function setupCanvasHTML() {
 async function setupCanvas(state) {
     // Ensure canvas HTML structure exists
     setupCanvasHTML();
-    
+
     const bgCanvas = document.getElementById('richmenu-canvas-bg');
     const overlayCanvas = document.getElementById('richmenu-canvas-overlay');
-    
+
     if (!bgCanvas || !overlayCanvas) {
         console.error('Canvas elements not found');
         return;
     }
-    
+
     // Measure from wrapper to ensure full width
     const wrapper = overlayCanvas.closest('.canvas-wrapper');
     const stage = document.getElementById('richmenu-canvas-stage');
@@ -2054,13 +2220,13 @@ async function setupCanvas(state) {
     const maxWidth = (wrapper ? wrapper.clientWidth : 0) - paddingPx;
     const cw = Math.max(100, Math.round(maxWidth * 0.75)); // Scale down to 75% for better overview
     const ch = Math.round(cw * (currentRM.metadata.size.height / currentRM.metadata.size.width));
-    
+
     // Size stage so wrapper encloses canvases
     if (stage) {
         stage.style.width = cw + 'px';
         stage.style.height = ch + 'px';
     }
-    
+
     // Setup both canvases with same dimensions
     [bgCanvas, overlayCanvas].forEach(canvas => {
         canvas.width = cw;
@@ -2068,7 +2234,7 @@ async function setupCanvas(state) {
         canvas.style.width = cw + 'px';
         canvas.style.height = ch + 'px';
     });
-    
+
     state.scale = cw / currentRM.metadata.size.width;
 
     // Hook overlay changes to dirty state if available
@@ -2081,7 +2247,7 @@ async function setupCanvas(state) {
 
     // Draw static background once
     await drawBackground(state);
-    
+
     // Draw interactive overlay
     drawOverlay(state);
 
@@ -2096,14 +2262,14 @@ async function drawBackground(state) {
 
     // Clear background
     ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-    
+
     if (currentRM.image && currentRM.image.dataUrl) {
         await drawImageOnCanvas(ctx, currentRM.image.dataUrl, bgCanvas.width, bgCanvas.height);
     } else {
         // Draw a subtle grid pattern for empty canvas
         ctx.fillStyle = '#fafafa';
         ctx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-        
+
         // Add grid lines
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 1;
@@ -2129,7 +2295,7 @@ function drawOverlay(state) {
 
     // Clear overlay
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    
+
     drawAreas(state);
     drawResizeHandles(state);
 }
@@ -2143,57 +2309,57 @@ function drawAreas(state) {
     areas.forEach((area, idx) => {
         const { x, y, width, height } = area.bounds;
         const sx = x * state.scale, sy = y * state.scale, sw = width * state.scale, sh = height * state.scale;
-        
+
         if (idx === state.selectedAreaIndex) {
             // Selected area - with shadow and thicker border
             ctx.save();
-            
+
             // Draw shadow first
             ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
             ctx.shadowBlur = 8;
             ctx.shadowOffsetX = 2;
             ctx.shadowOffsetY = 2;
-            
+
             ctx.strokeStyle = '#02a568';
             ctx.lineWidth = 3;
             ctx.strokeRect(sx, sy, sw, sh);
-            
+
             ctx.restore();
-            
+
             // Fill with transparency
             ctx.fillStyle = 'rgba(2,165,104,0.15)';
             ctx.fillRect(sx, sy, sw, sh);
         } else {
             // Normal area - with subtle shadow
             ctx.save();
-            
+
             // Draw shadow
             ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
             ctx.shadowBlur = 4;
             ctx.shadowOffsetX = 1;
             ctx.shadowOffsetY = 1;
-            
+
             ctx.strokeStyle = '#1a73e8';
             ctx.lineWidth = 2;
             ctx.strokeRect(sx, sy, sw, sh);
-            
+
             ctx.restore();
-            
+
             ctx.fillStyle = 'rgba(26,115,232,0.08)';
             ctx.fillRect(sx, sy, sw, sh);
         }
-        
+
         // Draw area number with background
         ctx.save();
         ctx.fillStyle = idx === state.selectedAreaIndex ? '#02a568' : '#1a73e8';
         ctx.font = 'bold 12px Arial';
         const text = `#${idx + 1}`;
         const textWidth = ctx.measureText(text).width;
-        
+
         // Text background
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fillRect(sx + 2, sy + 2, textWidth + 4, 16);
-        
+
         // Text
         ctx.fillStyle = idx === state.selectedAreaIndex ? '#02a568' : '#1a73e8';
         ctx.fillText(text, sx + 4, sy + 14);
@@ -2229,7 +2395,7 @@ function wireAreaButtons(state) {
         updateActionPanel(state);
         renderJsonPreview(state);
         if (state.scheduleAutosave) state.scheduleAutosave();
-        
+
         // 廣播區域更新
         broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
     });
@@ -2243,7 +2409,7 @@ function wireAreaButtons(state) {
         updateActionPanel(state);
         renderJsonPreview(state);
         if (state.scheduleAutosave) state.scheduleAutosave();
-        
+
         // 廣播區域更新
         broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
     });
@@ -2254,45 +2420,60 @@ function enableAreaInteractions(canvas, state) {
     let dragStart = null;
     let dragOffset = { x: 0, y: 0 };
     let resizeHandle = null; // 'nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'
-    
+
+    // 設定游標追蹤（節流）
+    const throttledCursorBroadcast = throttle((e) => {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const relativeX = (e.clientX - rect.left) / rect.width;
+        const relativeY = (e.clientY - rect.top) / rect.height;
+
+        // 確保相對座標在 0-1 範圍內
+        if (relativeX >= 0 && relativeX <= 1 && relativeY >= 0 && relativeY <= 1) {
+            broadcastCursorMove(relativeX, relativeY);
+        }
+    }, 50);
+
     // Update cursor based on hover
     canvas.onmousemove = (e) => {
+        throttledCursorBroadcast(e);
         if (mode === 'creating') {
             // Draw preview rectangle while creating - only redraw overlay
             const pos = getCanvasPos(e, canvas);
             drawOverlay(state); // Redraw existing areas
-            
+
             const ctx = canvas.getContext('2d');
             const x = Math.min(dragStart.x, pos.x);
             const y = Math.min(dragStart.y, pos.y);
             const w = Math.abs(pos.x - dragStart.x);
             const h = Math.abs(pos.y - dragStart.y);
-            
+
             // Draw preview with shadow
             ctx.save();
             ctx.shadowColor = 'rgba(2, 165, 104, 0.3)';
             ctx.shadowBlur = 4;
             ctx.shadowOffsetX = 1;
             ctx.shadowOffsetY = 1;
-            
+
             ctx.strokeStyle = '#02a568';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
             ctx.strokeRect(x, y, w, h);
-            
+
             ctx.restore();
-            
+
             ctx.fillStyle = 'rgba(2,165,104,0.1)';
             ctx.fillRect(x, y, w, h);
             ctx.setLineDash([]);
             return;
         }
-        
+
         if (mode === 'dragging' && state.selectedAreaIndex >= 0) {
             const pos = getCanvasPos(e, canvas);
             const currentRM = getCurrentRichMenu(state);
             const area = currentRM.metadata.areas[state.selectedAreaIndex];
-            
+
             // Move area keeping size, clamp to canvas
             let nx = Math.round((pos.x - dragOffset.x) / state.scale);
             let ny = Math.round((pos.y - dragOffset.y) / state.scale);
@@ -2300,24 +2481,24 @@ function enableAreaInteractions(canvas, state) {
             ny = Math.max(0, Math.min(ny, currentRM.metadata.size.height - area.bounds.height));
             area.bounds.x = nx;
             area.bounds.y = ny;
-            
+
             drawOverlay(state); // Only redraw overlay
             renderJsonPreview(state);
             if (state.scheduleAutosave) state.scheduleAutosave();
             return;
         }
-        
+
         if (mode === 'resizing' && state.selectedAreaIndex >= 0 && resizeHandle) {
             const pos = getCanvasPos(e, canvas);
             const currentRM = getCurrentRichMenu(state);
             const area = currentRM.metadata.areas[state.selectedAreaIndex];
             const bounds = area.bounds;
-            
+
             // Convert to canvas coordinates for easier calculation
             let newBounds = { ...bounds };
             const canvasX = pos.x / state.scale;
             const canvasY = pos.y / state.scale;
-            
+
             switch (resizeHandle) {
                 case 'nw':
                     newBounds.width = bounds.x + bounds.width - canvasX;
@@ -2354,13 +2535,13 @@ function enableAreaInteractions(canvas, state) {
                     newBounds.width = canvasX - bounds.x;
                     break;
             }
-            
+
             // Clamp to minimum size and canvas bounds
             newBounds.width = Math.max(20, newBounds.width);
             newBounds.height = Math.max(20, newBounds.height);
             newBounds.x = Math.max(0, Math.min(newBounds.x, currentRM.metadata.size.width - newBounds.width));
             newBounds.y = Math.max(0, Math.min(newBounds.y, currentRM.metadata.size.height - newBounds.height));
-            
+
             // Ensure right and bottom edges don't exceed canvas
             if (newBounds.x + newBounds.width > currentRM.metadata.size.width) {
                 newBounds.width = currentRM.metadata.size.width - newBounds.x;
@@ -2368,7 +2549,7 @@ function enableAreaInteractions(canvas, state) {
             if (newBounds.y + newBounds.height > currentRM.metadata.size.height) {
                 newBounds.height = currentRM.metadata.size.height - newBounds.y;
             }
-            
+
             // Round to integers to avoid fractional bounds
             newBounds.x = Math.round(newBounds.x);
             newBounds.y = Math.round(newBounds.y);
@@ -2382,12 +2563,12 @@ function enableAreaInteractions(canvas, state) {
             if (state.scheduleAutosave) state.scheduleAutosave();
             return;
         }
-        
+
         // Update cursor based on what's under mouse
         const pos = getCanvasPos(e, canvas);
         const hitIndex = hitTestArea(pos, state);
         const handle = getResizeHandle(pos, state);
-        
+
         if (handle) {
             canvas.style.cursor = getResizeCursor(handle);
         } else if (hitIndex >= 0) {
@@ -2399,7 +2580,7 @@ function enableAreaInteractions(canvas, state) {
 
     canvas.onmousedown = (e) => {
         const pos = getCanvasPos(e, canvas);
-        
+
         // Check for resize handle first
         const handle = getResizeHandle(pos, state);
         if (handle && state.selectedAreaIndex >= 0) {
@@ -2407,7 +2588,7 @@ function enableAreaInteractions(canvas, state) {
             resizeHandle = handle;
             return;
         }
-        
+
         // Check for area hit
         const hitIndex = hitTestArea(pos, state);
         if (hitIndex >= 0) {
@@ -2418,12 +2599,12 @@ function enableAreaInteractions(canvas, state) {
             const area = currentRM.metadata.areas[hitIndex];
             dragOffset.x = pos.x - area.bounds.x * state.scale;
             dragOffset.y = pos.y - area.bounds.y * state.scale;
-            
+
             drawOverlay(state);
             updateActionPanel(state);
             return;
         }
-        
+
         // Start creating new area
         mode = 'creating';
         dragStart = pos;
@@ -2438,7 +2619,7 @@ function enableAreaInteractions(canvas, state) {
             const y = Math.min(dragStart.y, pos.y);
             const w = Math.abs(pos.x - dragStart.x);
             const h = Math.abs(pos.y - dragStart.y);
-            
+
             // Only create if area is large enough
             if (w > 10 && h > 10) {
                 const currentRM = getCurrentRichMenu(state);
@@ -2451,31 +2632,31 @@ function enableAreaInteractions(canvas, state) {
                     },
                     action: { type: 'uri', uri: '' }
                 };
-                
+
                 // Clamp to canvas bounds
                 area.bounds.x = Math.max(0, Math.min(area.bounds.x, currentRM.metadata.size.width - area.bounds.width));
                 area.bounds.y = Math.max(0, Math.min(area.bounds.y, currentRM.metadata.size.height - area.bounds.height));
-                
+
                 currentRM.metadata.areas.push(area);
                 state.selectedAreaIndex = currentRM.metadata.areas.length - 1;
-                
+
                 updateActionPanel(state);
                 renderJsonPreview(state);
                 if (state.scheduleAutosave) state.scheduleAutosave();
-                
+
                 // 廣播新增的區域
                 broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
             }
-            
+
             drawOverlay(state);
         }
-        
+
         // 如果完成拖曳或調整大小，廣播更新
         if (mode === 'dragging' || mode === 'resizing') {
             const currentRM = getCurrentRichMenu(state);
             broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
         }
-        
+
         mode = 'select';
         dragStart = null;
         resizeHandle = null;
@@ -2485,6 +2666,16 @@ function enableAreaInteractions(canvas, state) {
     canvas.oncontextmenu = (e) => {
         e.preventDefault();
         return false;
+    };
+
+    // 滑鼠離開 Canvas 時廣播離開事件
+    canvas.onmouseleave = () => {
+        if (!socket || !currentProjectId || !currentRichMenuId) return;
+        socket.emit('cursor:leave', {
+            project_id: currentProjectId,
+            rich_menu_id: currentRichMenuId,
+            user_id: myUserId
+        });
     };
 }
 
@@ -2496,44 +2687,44 @@ function redrawCanvas(state) {
 
 function drawResizeHandles(state) {
     if (state.selectedAreaIndex < 0) return;
-    
+
     const overlayCanvas = document.getElementById('richmenu-canvas-overlay');
     const ctx = overlayCanvas.getContext('2d');
     const currentRM = getCurrentRichMenu(state);
     const area = currentRM.metadata.areas[state.selectedAreaIndex];
     const { x, y, width, height } = area.bounds;
-    
+
     const sx = x * state.scale;
     const sy = y * state.scale;
     const sw = width * state.scale;
     const sh = height * state.scale;
-    
+
     const handleSize = 8;
     const handles = [
-        { x: sx - handleSize/2, y: sy - handleSize/2 }, // nw
-        { x: sx + sw/2 - handleSize/2, y: sy - handleSize/2 }, // n
-        { x: sx + sw - handleSize/2, y: sy - handleSize/2 }, // ne
-        { x: sx + sw - handleSize/2, y: sy + sh/2 - handleSize/2 }, // e
-        { x: sx + sw - handleSize/2, y: sy + sh - handleSize/2 }, // se
-        { x: sx + sw/2 - handleSize/2, y: sy + sh - handleSize/2 }, // s
-        { x: sx - handleSize/2, y: sy + sh - handleSize/2 }, // sw
-        { x: sx - handleSize/2, y: sy + sh/2 - handleSize/2 }, // w
+        { x: sx - handleSize / 2, y: sy - handleSize / 2 }, // nw
+        { x: sx + sw / 2 - handleSize / 2, y: sy - handleSize / 2 }, // n
+        { x: sx + sw - handleSize / 2, y: sy - handleSize / 2 }, // ne
+        { x: sx + sw - handleSize / 2, y: sy + sh / 2 - handleSize / 2 }, // e
+        { x: sx + sw - handleSize / 2, y: sy + sh - handleSize / 2 }, // se
+        { x: sx + sw / 2 - handleSize / 2, y: sy + sh - handleSize / 2 }, // s
+        { x: sx - handleSize / 2, y: sy + sh - handleSize / 2 }, // sw
+        { x: sx - handleSize / 2, y: sy + sh / 2 - handleSize / 2 }, // w
     ];
-    
+
     handles.forEach(handle => {
         ctx.save();
-        
+
         // Draw handle shadow
         ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
         ctx.shadowBlur = 3;
         ctx.shadowOffsetX = 1;
         ctx.shadowOffsetY = 1;
-        
+
         ctx.fillStyle = '#02a568';
         ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
-        
+
         ctx.restore();
-        
+
         // Draw handle border
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 1;
@@ -2543,36 +2734,36 @@ function drawResizeHandles(state) {
 
 function getResizeHandle(pos, state) {
     if (state.selectedAreaIndex < 0) return null;
-    
+
     const currentRM = getCurrentRichMenu(state);
     const area = currentRM.metadata.areas[state.selectedAreaIndex];
     const { x, y, width, height } = area.bounds;
-    
+
     const sx = x * state.scale;
     const sy = y * state.scale;
     const sw = width * state.scale;
     const sh = height * state.scale;
-    
+
     const handleSize = 8;
     const tolerance = handleSize / 2;
-    
+
     const handles = [
         { name: 'nw', x: sx, y: sy },
-        { name: 'n', x: sx + sw/2, y: sy },
+        { name: 'n', x: sx + sw / 2, y: sy },
         { name: 'ne', x: sx + sw, y: sy },
-        { name: 'e', x: sx + sw, y: sy + sh/2 },
+        { name: 'e', x: sx + sw, y: sy + sh / 2 },
         { name: 'se', x: sx + sw, y: sy + sh },
-        { name: 's', x: sx + sw/2, y: sy + sh },
+        { name: 's', x: sx + sw / 2, y: sy + sh },
         { name: 'sw', x: sx, y: sy + sh },
-        { name: 'w', x: sx, y: sy + sh/2 },
+        { name: 'w', x: sx, y: sy + sh / 2 },
     ];
-    
+
     for (const handle of handles) {
         if (Math.abs(pos.x - handle.x) <= tolerance && Math.abs(pos.y - handle.y) <= tolerance) {
             return handle.name;
         }
     }
-    
+
     return null;
 }
 
@@ -2613,7 +2804,7 @@ function wireActionPanel(state) {
         renderActionFields(state);
         renderJsonPreview(state);
         if (state.scheduleAutosave) state.scheduleAutosave();
-        
+
         // 廣播區域更新（action type 改變）
         broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
     });
@@ -2624,9 +2815,9 @@ function updateActionPanel(state) {
     const typeEl = document.getElementById('action-type');
     const titleEl = document.getElementById('actions-panel-title');
     const actionsPanel = document.querySelector('.actions-panel');
-    
+
     if (!typeEl) return;
-    
+
     if (state.selectedAreaIndex < 0) {
         // 沒有選擇區域時，禁用動作設定
         typeEl.value = 'none';
@@ -2636,16 +2827,16 @@ function updateActionPanel(state) {
         renderActionFields(state);
         return;
     }
-    
+
     // 有選擇區域時，啟用動作設定
     typeEl.disabled = false;
     if (actionsPanel) actionsPanel.classList.remove('disabled');
-    
+
     // 更新標題顯示區域編號
     if (titleEl) {
         titleEl.textContent = `動作設定 - #${state.selectedAreaIndex + 1} 區域`;
     }
-    
+
     const currentRM = getCurrentRichMenu(state);
     const area = currentRM.metadata.areas[state.selectedAreaIndex];
     const t = area && area.action ? area.action.type : 'none';
@@ -2677,7 +2868,7 @@ function renderActionFields(state) {
             area.action[id] = input.value;
             renderJsonPreview(state);
             if (state.scheduleAutosave) state.scheduleAutosave();
-            
+
             // 廣播區域更新（action 改變）
             const currentRM = getCurrentRichMenu(state);
             broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
@@ -2705,7 +2896,7 @@ function renderActionFields(state) {
             area.action[id] = select.value;
             renderJsonPreview(state);
             if (state.scheduleAutosave) state.scheduleAutosave();
-            
+
             // 廣播區域更新（action 改變）
             const currentRM = getCurrentRichMenu(state);
             broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
@@ -2720,7 +2911,7 @@ function renderActionFields(state) {
         group.className = 'form-group';
         const lab = document.createElement('label');
         lab.textContent = label;
-        
+
         const textarea = document.createElement('textarea');
         textarea.id = id;
         textarea.value = value || '';
@@ -2728,7 +2919,7 @@ function renderActionFields(state) {
         textarea.maxLength = maxLength;
         textarea.style.resize = 'vertical';
         textarea.style.minHeight = '60px';
-        
+
         // 建立字數提示元素
         const charCount = document.createElement('div');
         charCount.className = 'char-count';
@@ -2746,18 +2937,18 @@ function renderActionFields(state) {
             }
         };
         updateCharCount();
-        
+
         textarea.addEventListener('input', () => {
             area.action[id] = textarea.value;
             updateCharCount();
             renderJsonPreview(state);
             if (state.scheduleAutosave) state.scheduleAutosave();
-            
+
             // 廣播區域更新（action 改變）
             const currentRM = getCurrentRichMenu(state);
             broadcastAreasUpdate(currentRM.id, currentRM.metadata.areas);
         });
-        
+
         group.appendChild(lab);
         group.appendChild(textarea);
         group.appendChild(charCount);
@@ -2781,7 +2972,7 @@ function renderActionFields(state) {
                 aliasOptions.push({ value: `tab_${idx}`, text: `${rm.name} (無 alias)` });
             }
         });
-        
+
         // 修改 addSelect 以自動同步 data 欄位
         const group = document.createElement('div');
         group.className = 'form-group';
@@ -2807,12 +2998,12 @@ function renderActionFields(state) {
         group.appendChild(lab);
         group.appendChild(select);
         fields.appendChild(group);
-        
+
         // 初始化時也確保 data 與 richMenuAliasId 同步
         if (area.action.richMenuAliasId && area.action.data !== area.action.richMenuAliasId) {
             area.action.data = area.action.richMenuAliasId;
         }
-        
+
         // data 欄位不再顯示，已自動處理
     }
 }
@@ -2849,7 +3040,7 @@ async function saveDraft(state) {
     // This function is now replaced by direct project saving
     await saveProject(state.project);
     alert('專案已保存');
-} 
+}
 
 function getCanvasPos(e, canvas) {
     const rect = canvas.getBoundingClientRect();
@@ -2870,7 +3061,7 @@ function hitTestArea(pos, state) {
         }
     }
     return -1;
-} 
+}
 
 function buildCurrentRichMenuMetadata(state) {
     const currentRM = getCurrentRichMenu(state);
@@ -2900,7 +3091,7 @@ function dataUrlToBlob(dataUrl) {
 function validateRichMenuMetadata(metadata) {
     if (!metadata) throw new Error('內部錯誤：metadata 缺失');
     if (!metadata.name || !metadata.chatBarText) throw new Error('請填寫名稱與 Chat Bar 文字');
-    
+
     // Validate chatBarText length (LINE API limit: 14 characters)
     if (metadata.chatBarText.length > 14) {
         throw new Error(`Chat Bar 文字過長（${metadata.chatBarText.length}/14 字），請刪減至 14 字以內`);
@@ -3027,77 +3218,77 @@ async function uploadCurrentRichMenu(state) {
             if (!link.ok) throw new Error(`綁定使用者 ${uid} 失敗：${link.message || link.status}`);
         }
     }
-} 
+}
 
 async function uploadAllRichMenus(state, onProgress) {
-	const project = state.project;
-	if (!project || !Array.isArray(project.richMenus) || project.richMenus.length === 0) {
-		throw new Error('此專案沒有任何 Rich Menu');
-	}
-	const account = await getAccount(project.accountId);
-	if (!account || !account.channelAccessToken) throw new Error('找不到帳號的 Channel Access Token');
-	const token = account.channelAccessToken;
+    const project = state.project;
+    if (!project || !Array.isArray(project.richMenus) || project.richMenus.length === 0) {
+        throw new Error('此專案沒有任何 Rich Menu');
+    }
+    const account = await getAccount(project.accountId);
+    if (!account || !account.channelAccessToken) throw new Error('找不到帳號的 Channel Access Token');
+    const token = account.channelAccessToken;
 
-	for (let i = 0; i < project.richMenus.length; i++) {
-		state.currentTabIndex = i; // switch context so helpers reuse current
-		const currentRM = getCurrentRichMenu(state);
-		const nameLabel = currentRM?.metadata?.name || `Rich Menu ${i + 1}`;
-		if (onProgress) onProgress(`(${i+1}/${project.richMenus.length}) 準備上傳：${nameLabel}`);
+    for (let i = 0; i < project.richMenus.length; i++) {
+        state.currentTabIndex = i; // switch context so helpers reuse current
+        const currentRM = getCurrentRichMenu(state);
+        const nameLabel = currentRM?.metadata?.name || `Rich Menu ${i + 1}`;
+        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 準備上傳：${nameLabel}`);
 
-		if (!currentRM.image || !currentRM.image.dataUrl) {
-			throw new Error(`「${nameLabel}」缺少圖片，請先上傳圖片`);
-		}
+        if (!currentRM.image || !currentRM.image.dataUrl) {
+            throw new Error(`「${nameLabel}」缺少圖片，請先上傳圖片`);
+        }
 
-		const metadata = buildCurrentRichMenuMetadata(state);
-		validateRichMenuMetadata(metadata);
+        const metadata = buildCurrentRichMenuMetadata(state);
+        validateRichMenuMetadata(metadata);
 
-		// Remove duplicates by name before create
-		const listed = await listRichMenus(token);
-		if (!listed.ok) throw new Error(`列出 Rich Menu 失敗：${listed.message || listed.status}`);
-		const sameNameMenus = (listed.data.richmenus || []).filter(m => m.name === metadata.name);
-		for (const m of sameNameMenus) {
-			const del = await deleteRichMenu(token, m.richMenuId);
-			if (!del.ok) throw new Error(`刪除同名 Rich Menu 失敗：${del.message || del.status}`);
-		}
+        // Remove duplicates by name before create
+        const listed = await listRichMenus(token);
+        if (!listed.ok) throw new Error(`列出 Rich Menu 失敗：${listed.message || listed.status}`);
+        const sameNameMenus = (listed.data.richmenus || []).filter(m => m.name === metadata.name);
+        for (const m of sameNameMenus) {
+            const del = await deleteRichMenu(token, m.richMenuId);
+            if (!del.ok) throw new Error(`刪除同名 Rich Menu 失敗：${del.message || del.status}`);
+        }
 
-		if (onProgress) onProgress(`(${i+1}/${project.richMenus.length}) 建立 metadata：${nameLabel}`);
-		const created = await createRichMenu(token, metadata);
-		if (!created.ok) throw new Error(`建立 Rich Menu 失敗：${created.message || created.status}`);
-		const richMenuId = created.data.richMenuId;
+        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 建立 metadata：${nameLabel}`);
+        const created = await createRichMenu(token, metadata);
+        if (!created.ok) throw new Error(`建立 Rich Menu 失敗：${created.message || created.status}`);
+        const richMenuId = created.data.richMenuId;
 
-		// Prepare and upload image
-		const targetW = metadata.size.width;
-		const targetH = metadata.size.height;
-		let quality = 0.9;
-		let uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', quality);
-		let blob = dataUrlToBlob(uploadDataUrl);
-		const MAX_BYTES = 4_500_000;
-		while (blob.size > MAX_BYTES && quality > 0.6) {
-			quality -= 0.1;
-			uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', Math.max(quality, 0.6));
-			blob = dataUrlToBlob(uploadDataUrl);
-		}
+        // Prepare and upload image
+        const targetW = metadata.size.width;
+        const targetH = metadata.size.height;
+        let quality = 0.9;
+        let uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', quality);
+        let blob = dataUrlToBlob(uploadDataUrl);
+        const MAX_BYTES = 4_500_000;
+        while (blob.size > MAX_BYTES && quality > 0.6) {
+            quality -= 0.1;
+            uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', Math.max(quality, 0.6));
+            blob = dataUrlToBlob(uploadDataUrl);
+        }
 
-		if (onProgress) onProgress(`(${i+1}/${project.richMenus.length}) 上傳圖片：${nameLabel}`);
-		const uploaded = await uploadRichMenuImage(token, richMenuId, blob);
-		if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
+        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 上傳圖片：${nameLabel}`);
+        const uploaded = await uploadRichMenuImage(token, richMenuId, blob);
+        if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
 
-		// Alias sync if needed
-		if (currentRM.alias && currentRM.alias.trim() !== '') {
-			if (onProgress) onProgress(`(${i+1}/${project.richMenus.length}) 同步 alias：${currentRM.alias}`);
-			let aliasRes = await updateAlias(token, currentRM.alias.trim(), richMenuId);
-			if (!aliasRes.ok && aliasRes.status === 404) {
-				aliasRes = await createAlias(token, currentRM.alias.trim(), richMenuId);
-			}
-			if (!aliasRes.ok) throw new Error(`同步 alias 失敗：${aliasRes.message || aliasRes.status}`);
-		}
+        // Alias sync if needed
+        if (currentRM.alias && currentRM.alias.trim() !== '') {
+            if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 同步 alias：${currentRM.alias}`);
+            let aliasRes = await updateAlias(token, currentRM.alias.trim(), richMenuId);
+            if (!aliasRes.ok && aliasRes.status === 404) {
+                aliasRes = await createAlias(token, currentRM.alias.trim(), richMenuId);
+            }
+            if (!aliasRes.ok) throw new Error(`同步 alias 失敗：${aliasRes.message || aliasRes.status}`);
+        }
 
-		currentRM.richMenuId = richMenuId;
-		await saveProject(state.project);
-	}
+        currentRM.richMenuId = richMenuId;
+        await saveProject(state.project);
+    }
 
-	if (onProgress) onProgress('全部上傳完成');
-} 
+    if (onProgress) onProgress('全部上傳完成');
+}
 
 async function resizeImageDataUrl(dataUrl, targetW, targetH, mime = 'image/jpeg', quality = 0.9) {
     return new Promise((resolve, reject) => {
