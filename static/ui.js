@@ -40,17 +40,6 @@ function initSocketIO() {
     socket.on('user:joined', (data) => {
         console.log(`${data.user_name} 加入專案`);
         showNotification(`${data.user_name} 加入協作`, 'info');
-
-        // 當有新用戶加入時，廣播我的當前狀態，讓對方知道我在哪個 Tab
-        if (currentProjectId && currentRichMenuId) {
-            socket.emit('tab:switch', {
-                project_id: currentProjectId,
-                rich_menu_id: currentRichMenuId,
-                user_id: myUserId,
-                user_name: myUserName,
-                color: myColor
-            });
-        }
     });
 
     socket.on('user:left', (data) => {
@@ -59,12 +48,6 @@ function initSocketIO() {
         if (remoteCursors[data.user_id]) {
             remoteCursors[data.user_id].element.remove();
             delete remoteCursors[data.user_id];
-        }
-
-        // 移除活躍編輯者狀態並更新指示器
-        if (activeEditors[data.user_id]) {
-            delete activeEditors[data.user_id];
-            updateTabIndicators();
         }
     });
 
@@ -358,13 +341,14 @@ function drawRemoteCursor(data) {
         remoteCursors[data.user_id] = cursor;
     }
 
+    // 確保游標可見（修正離開後重新進入的問題）
+    cursor.element.style.display = '';
+    cursor.element.style.opacity = '1';
+    cursor.element.style.transition = 'all 0.1s ease'; // 重置為平滑移動
+
     // 更新位置（使用固定定位的絕對座標）
     cursor.element.style.left = data.x + 'px';
     cursor.element.style.top = data.y + 'px';
-
-    // 確保游標可見（修復離開後回來不顯示的問題）
-    cursor.element.style.display = 'block';
-    cursor.element.style.opacity = '1';
 }
 
 function showNotification(message, type = 'info') {
@@ -1673,9 +1657,6 @@ function renderTabs(state) {
         openAddRichMenuModal(state);
     });
     tabsEl.appendChild(addBtn);
-
-    // 重新渲染後更新指示器
-    updateTabIndicators();
 }
 
 function loadCurrentTab(state) {
