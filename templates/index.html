@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,10 +9,11 @@
     <!-- Socket.IO 客戶端 -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
+
 <body>
     <div id="app">
         <header>
-            <h1>LINE Rich Menu Editor - 多人即時協作版</h1>
+            <h1>LINE Rich Menu Editor</h1>
         </header>
         <main>
             <!-- 主要內容將由 JavaScript 動態生成 -->
@@ -23,5 +25,5 @@
     <script src="{{ url_for('static', filename='ui.js') }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
-</html>
 
+</html>

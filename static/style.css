@@ -12,6 +12,7 @@
         transform: translateX(400px);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -23,6 +24,7 @@
         transform: translateX(0);
         opacity: 1;
     }
+
     to {
         transform: translateX(400px);
         opacity: 0;
@@ -78,7 +80,8 @@ header h1 {
 
 main {
     flex-grow: 1;
-    padding: 0 1rem 1rem 1rem; /* remove top gap between header and main */
+    padding: 0 1rem 1rem 1rem;
+    /* remove top gap between header and main */
 }
 
 /* General Layout */
@@ -117,7 +120,8 @@ main {
     border: 1px solid #ccc;
     border-radius: 4px;
     font-size: 1rem;
-    box-sizing: border-box; /* Important for padding */
+    box-sizing: border-box;
+    /* Important for padding */
 }
 
 .form-group select[disabled] {
@@ -168,7 +172,8 @@ main {
 }
 
 .btn:hover {
-    background-color: #028a78; /* Darker shade of primary color */
+    background-color: #028a78;
+    /* Darker shade of primary color */
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -236,25 +241,29 @@ code {
     border-top: none;
     border-radius: 0 8px 8px 8px;
     /* padding: 1.5rem; */
-    padding-bottom: 60px; /* 為底部懸浮工具列留出空間，避免遮擋 canvas */
+    padding-bottom: 60px;
+    /* 為底部懸浮工具列留出空間，避免遮擋 canvas */
 }
 
 /* Panel positioning */
 .canvas-panel {
     grid-column: 1;
-    grid-row: 1 / 3; /* 佔據左側兩行 */
+    grid-row: 1 / 3;
+    /* 佔據左側兩行 */
 }
 
 .chatbar-panel {
     grid-column: 2;
     grid-row: 1;
-    align-self: start; /* 高度適應內容 */
+    align-self: start;
+    /* 高度適應內容 */
 }
 
 .actions-panel {
     grid-column: 2;
     grid-row: 2;
-    align-self: start; /* 從頂部開始對齊 */
+    align-self: start;
+    /* 從頂部開始對齊 */
     transition: opacity 0.2s ease;
 }
 
@@ -271,7 +280,7 @@ code {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.panel > *:first-child {
+.panel>*:first-child {
     margin-top: 0;
 }
 
@@ -302,7 +311,8 @@ code {
     min-width: 0;
     /* 確保不會影響 page-header 高度 */
     align-self: center;
-    max-height: 40px; /* 限制最大高度 */
+    max-height: 40px;
+    /* 限制最大高度 */
 }
 
 .tabs-container::-webkit-scrollbar {
@@ -338,11 +348,14 @@ code {
 
 .tab {
     position: relative;
-    padding: 0.5rem 1rem; /* 減少 padding，確保在 page-header 中高度適中 */
+    padding: 0.5rem 1rem;
+    /* 減少 padding，確保在 page-header 中高度適中 */
     background: transparent;
-    border: 1px solid transparent; /* 提供輪廓以增強 pill 感 */
+    border: 1px solid transparent;
+    /* 提供輪廓以增強 pill 感 */
     cursor: pointer;
-    border-radius: 9999px; /* 更圓的 pill 外觀 */
+    border-radius: 9999px;
+    /* 更圓的 pill 外觀 */
     font-size: 0.9rem;
     font-weight: 500;
     color: #6b7280;
@@ -354,11 +367,13 @@ code {
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
-    height: 8px; /* 固定高度 */
+    height: 8px;
+    /* 固定高度 */
 }
 
 .tab:hover {
-    background: #ffffff; /* 更明顯的 pill 懸浮感 */
+    background: #ffffff;
+    /* 更明顯的 pill 懸浮感 */
     border-color: #e5e7eb;
     color: #374151;
 }
@@ -367,10 +382,12 @@ code {
     background: #ffffff;
     color: var(--primary-color);
     font-weight: 600;
-    border-color: #e5e7eb; /* 強化 pill 輪廓 */
-    box-shadow: 0 0 0 3px rgba(2, 165, 104, 0.08), /* 柔和的 ring 提升層次 */
-                0 2px 6px rgba(2, 165, 104, 0.10),
-                0 1px 3px rgba(0, 0, 0, 0.06);
+    border-color: #e5e7eb;
+    /* 強化 pill 輪廓 */
+    box-shadow: 0 0 0 3px rgba(2, 165, 104, 0.08),
+        /* 柔和的 ring 提升層次 */
+        0 2px 6px rgba(2, 165, 104, 0.10),
+        0 1px 3px rgba(0, 0, 0, 0.06);
     position: relative;
 }
 
@@ -381,7 +398,8 @@ code {
     left: 50%;
     transform: translateX(-50%);
     width: 20px;
-    height: 2px; /* 更細的底部指示，避免破壞 pill 視覺 */
+    height: 2px;
+    /* 更細的底部指示，避免破壞 pill 視覺 */
     background: var(--primary-color);
     border-radius: 2px 2px 0 0;
 }
@@ -437,6 +455,7 @@ code {
     z-index: 100;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
+
 .editor-footer .footer-actions {
     display: flex;
     gap: 0.5rem;
@@ -478,12 +497,43 @@ code {
 }
 
 /* Autosave status */
-.save-status { display: inline-flex; align-items: center; gap: 6px; min-width: 88px; color: #666; }
-.spinner { width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.success-dot { background: #10b981; }
-.error-dot { background: #ef4444; }
+.save-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 88px;
+    color: #666;
+}
+
+.spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #ddd;
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.success-dot {
+    background: #10b981;
+}
+
+.error-dot {
+    background: #ef4444;
+}
 
 
 /* Remove old dirty indicators and save button styles (autosave now) */
@@ -543,7 +593,11 @@ code {
     background: #f2fffb;
 }
 
-.publish-controls { display: flex; justify-content: flex-end; margin-top: 0.75rem; }
+.publish-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.75rem;
+}
 
 .grid-note {
     color: #666;
@@ -554,7 +608,7 @@ code {
 .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.45);
+    background: rgba(0, 0, 0, 0.45);
     display: none;
     align-items: center;
     justify-content: center;
@@ -573,7 +627,7 @@ code {
     max-height: calc(100vh - 4rem);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
 .modal-large {
@@ -674,7 +728,8 @@ code {
     border-bottom: 1px solid #e5e7eb;
     flex-wrap: nowrap;
     justify-content: space-between;
-    min-height: 60px; /* 固定最小高度 */
+    min-height: 60px;
+    /* 固定最小高度 */
     box-sizing: border-box;
 }
 
@@ -798,6 +853,152 @@ code {
 }
 
 /* Account Card */
+/* ... (existing styles) ... */
+
+/* Mobile Responsiveness */
+@media (max-width: 1024px) {
+
+    /* 1. 調整主容器 Padding */
+    .container {
+        padding: 0.5rem;
+        margin: 0 auto;
+    }
+
+    /* 2. 將 Grid 改為單欄佈局 */
+    .editor-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 0 0 80px 0;
+        /* 移除左右 padding，保留底部空間 */
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* 3. 重置子元素 Grid 屬性 */
+    .canvas-panel,
+    .chatbar-panel,
+    .actions-panel {
+        width: 100%;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    /* 4. 調整 Canvas 區域 */
+    .panel .canvas-wrapper {
+        width: 100%;
+        /* 滿寬 */
+        padding: 0;
+        /* 移除內距 */
+        box-sizing: border-box;
+        border: none;
+        /* 移除邊框以爭取空間 */
+        background: transparent;
+        display: flex;
+        justify-content: center;
+        /* 置中 Canvas */
+    }
+
+    .canvas-container {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        position: relative;
+        /* 確保絕對定位的子元素相對於此定位 */
+    }
+
+    /* 強制所有 Canvas 元素滿寬並保持比例 */
+    #richmenu-canvas,
+    #richmenu-canvas-bg,
+    #richmenu-canvas-overlay,
+    #richmenu-canvas-stage {
+        width: 100% !important;
+        height: auto !important;
+        max-width: 100%;
+        display: block;
+        /* 消除 inline-block 的間隙 */
+    }
+
+    /* 專案選擇頁面 Header 優化 */
+    .project-selection-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .project-selection-header .header-row-top {
+        width: 100%;
+    }
+
+    .project-selection-header .header-row-bottom {
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .panel {
+        padding: 0.75rem;
+        /* 減少 Panel 內距 */
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+    }
+
+    /* 5. 調整懸浮工具列位置 */
+    .editor-footer {
+        width: fit-content;
+        /* 適應內容寬度 */
+        max-width: 95%;
+        /* 避免太寬 */
+        bottom: 1rem;
+        padding: 0.5rem 1rem;
+        /* 增加左右內距讓外觀更好看 */
+        left: 50%;
+        transform: translateX(-50%);
+        box-sizing: border-box;
+        white-space: nowrap;
+        /* 避免按鈕換行 */
+        display: flex;
+        justify-content: center;
+    }
+
+    /* 6. 調整 Header */
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+    }
+
+    .page-header-left,
+    .page-header-right {
+        justify-content: space-between;
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .page-header .page-title {
+        font-size: 1.1rem;
+    }
+
+    /* 7. 調整 Tabs */
+    .tabs-container {
+        max-width: 100%;
+        margin-top: 0;
+        overflow-x: auto;
+        padding-bottom: 5px;
+        /* 為滾動條留空間 */
+    }
+
+    /* 移除 Tabs 背景色 */
+    .tabs {
+        background: transparent;
+        padding: 0;
+    }
+}
+
 .account-card {
     background: white;
     border-radius: 8px;
@@ -1031,15 +1232,15 @@ code {
         grid-template-columns: 1fr;
         gap: 1rem;
     }
-    
+
     .toolbar {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.5rem;
     }
-    
+
     .modal {
         width: calc(100% - 1rem);
         margin: 0.5rem;
     }
-} 
+}

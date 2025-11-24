@@ -918,11 +918,14 @@ function renderProjectSelectionScreen() {
 
     const html = `
         <div id="project-selection" class="container">
-            <div class="page-header">
+            <div class="page-header project-selection-header">
+                <div class="header-row-top">
                 <button id="back-to-accounts" class="btn secondary">← 返回</button>
-                <h2 class="page-title">選擇專案</h2>
+                </div>
+                <div class="header-row-bottom">
                 <span class="page-subtitle">帳號：<strong>${escapeHtml(selectedAccountId || '')}</strong></span>
-                <button id="account-settings-btn" class="btn-icon" title="帳號設定">⚙️</button>
+                    <button id="account-settings-btn" class="btn-icon" title="帳號設定">⚙️</button>
+                </div>
             </div>
             
             <div class="cards-grid" id="projects-grid">
@@ -1672,6 +1675,22 @@ async function renderEditor(projectId) {
     // 加入專案房間
     joinProject(projectId);
 
+    // 廣播當前標籤狀態（確保其他用戶知道我們在哪個標籤）
+    // 使用 setTimeout 確保 joinProject 完成後再廣播
+    setTimeout(() => {
+        const currentRM = state.project.richMenus[state.currentTabIndex];
+        if (socket && currentProjectId && currentRM) {
+            console.log('廣播初始標籤狀態', currentRM.id);
+            socket.emit('tab:switch', {
+                project_id: currentProjectId,
+                rich_menu_id: currentRM.id,
+                user_id: myUserId,
+                user_name: myUserName,
+                color: myColor
+            });
+        }
+    }, 100);  // 100ms 延遲確保加入房間的操作完成
+
     // Autosave setup
     const saveStatusEl = document.getElementById('save-status');
     let autosaveTimer = null;
@@ -2258,9 +2277,9 @@ function setupCanvasHTML() {
     const canvasContainer = document.querySelector('.canvas-container');
     if (!canvasContainer) return;
     canvasContainer.innerHTML = `
-        <div id="richmenu-canvas-stage" style="position: relative; display: inline-block;">
-            <canvas id="richmenu-canvas-bg" style="position: absolute; top: 0; left: 0; z-index: 1;"></canvas>
-            <canvas id="richmenu-canvas-overlay" style="position: absolute; top: 0; left: 0; z-index: 2; pointer-events: all;"></canvas>
+        <div id="richmenu-canvas-stage" style="position: relative; display: inline-block; width: 100%;">
+            <canvas id="richmenu-canvas-bg" style="position: relative; top: 0; left: 0; z-index: 1; display: block; width: 100%;"></canvas>
+            <canvas id="richmenu-canvas-overlay" style="position: absolute; top: 0; left: 0; z-index: 2; pointer-events: all; display: block; width: 100%;"></canvas>
         </div>
     `;
 }
@@ -2728,6 +2747,47 @@ function enableAreaInteractions(canvas, state) {
         resizeHandle = null;
     };
 
+    // === 觸控事件支援 ===
+    canvas.ontouchstart = (e) => {
+        if (e.cancelable) e.preventDefault(); // 防止滾動
+
+        // 模擬 mousedown 事件物件結構
+        const touch = e.touches[0];
+        const mockEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            preventDefault: () => { }
+        };
+
+        canvas.onmousedown(mockEvent);
+    };
+
+    canvas.ontouchmove = (e) => {
+        if (e.cancelable) e.preventDefault();
+
+        const touch = e.touches[0];
+        const mockEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            preventDefault: () => { }
+        };
+
+        canvas.onmousemove(mockEvent);
+    };
+
+    canvas.ontouchend = (e) => {
+        if (e.cancelable) e.preventDefault();
+
+        const touch = e.changedTouches[0];
+        const mockEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            preventDefault: () => { }
+        };
+
+        canvas.onmouseup(mockEvent);
+    };
+
     // Prevent context menu
     canvas.oncontextmenu = (e) => {
         e.preventDefault();
@@ -3108,10 +3168,23 @@ async function saveDraft(state) {
     alert('專案已保存');
 }
 
-function getCanvasPos(e, canvas) {
+const getCanvasPos = (evt, canvas) => {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-}
+    return {
+        x: (evt.clientX - rect.left) / (rect.width / canvas.width),
+        y: (evt.clientY - rect.top) / (rect.height / canvas.height)
+    };
+};
+
+// 觸控事件輔助函式
+const getTouchPos = (evt, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const touch = evt.touches[0] || evt.changedTouches[0];
+    return {
+        x: (touch.clientX - rect.left) / (rect.width / canvas.width),
+        y: (touch.clientY - rect.top) / (rect.height / canvas.height)
+    };
+};
 
 function hitTestArea(pos, state) {
     const currentRM = getCurrentRichMenu(state);
