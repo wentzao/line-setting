@@ -2312,10 +2312,13 @@ async function setupCanvas(state) {
         stage.style.height = ch + 'px';
     }
 
-    // Setup both canvases with same dimensions
+    // Setup both canvases with high DPI support
+    const dpr = window.devicePixelRatio || 1;
     [bgCanvas, overlayCanvas].forEach(canvas => {
-        canvas.width = cw;
-        canvas.height = ch;
+        // Set physical dimensions
+        canvas.width = cw * dpr;
+        canvas.height = ch * dpr;
+        // Set logical (display) dimensions
         canvas.style.width = cw + 'px';
         canvas.style.height = ch + 'px';
     });
@@ -2346,29 +2349,35 @@ async function drawBackground(state) {
     const currentRM = getCurrentRichMenu(state);
 
     // Clear background
-    ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Reset and scale
+
+    // Use logical dimensions for clearing
+    const logicalWidth = bgCanvas.width / dpr;
+    const logicalHeight = bgCanvas.height / dpr;
+    ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
     if (currentRM.image && currentRM.image.dataUrl) {
-        await drawImageOnCanvas(ctx, currentRM.image.dataUrl, bgCanvas.width, bgCanvas.height);
+        await drawImageOnCanvas(ctx, currentRM.image.dataUrl, logicalWidth, logicalHeight);
     } else {
         // Draw a subtle grid pattern for empty canvas
         ctx.fillStyle = '#fafafa';
-        ctx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+        ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
         // Add grid lines
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 1;
         const gridSize = 50;
-        for (let x = 0; x < bgCanvas.width; x += gridSize) {
+        for (let x = 0; x < logicalWidth; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, bgCanvas.height);
+            ctx.lineTo(x, logicalHeight);
             ctx.stroke();
         }
-        for (let y = 0; y < bgCanvas.height; y += gridSize) {
+        for (let y = 0; y < logicalHeight; y += gridSize) {
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(bgCanvas.width, y);
+            ctx.lineTo(logicalWidth, y);
             ctx.stroke();
         }
     }
@@ -2379,7 +2388,12 @@ function drawOverlay(state) {
     const ctx = overlayCanvas.getContext('2d');
 
     // Clear overlay
-    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Reset and scale
+
+    const logicalWidth = overlayCanvas.width / dpr;
+    const logicalHeight = overlayCanvas.height / dpr;
+    ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
     drawAreas(state);
     drawResizeHandles(state);
@@ -3170,9 +3184,13 @@ async function saveDraft(state) {
 
 const getCanvasPos = (evt, canvas) => {
     const rect = canvas.getBoundingClientRect();
+    // Use style width (logical) if available, otherwise rect width
+    const logicalWidth = parseFloat(canvas.style.width) || rect.width;
+    const logicalHeight = parseFloat(canvas.style.height) || rect.height;
+
     return {
-        x: (evt.clientX - rect.left) / (rect.width / canvas.width),
-        y: (evt.clientY - rect.top) / (rect.height / canvas.height)
+        x: (evt.clientX - rect.left) * (logicalWidth / rect.width),
+        y: (evt.clientY - rect.top) * (logicalHeight / rect.height)
     };
 };
 
@@ -3180,9 +3198,12 @@ const getCanvasPos = (evt, canvas) => {
 const getTouchPos = (evt, canvas) => {
     const rect = canvas.getBoundingClientRect();
     const touch = evt.touches[0] || evt.changedTouches[0];
+    const logicalWidth = parseFloat(canvas.style.width) || rect.width;
+    const logicalHeight = parseFloat(canvas.style.height) || rect.height;
+
     return {
-        x: (touch.clientX - rect.left) / (rect.width / canvas.width),
-        y: (touch.clientY - rect.top) / (rect.height / canvas.height)
+        x: (touch.clientX - rect.left) * (logicalWidth / rect.width),
+        y: (touch.clientY - rect.top) * (logicalHeight / rect.height)
     };
 };
 
