@@ -49,6 +49,12 @@ function initSocketIO() {
             remoteCursors[data.user_id].element.remove();
             delete remoteCursors[data.user_id];
         }
+
+        // 移除該用戶的 Tab 編輯狀態
+        if (activeEditors[data.user_id]) {
+            delete activeEditors[data.user_id];
+            updateTabIndicators();
+        }
     });
 
     // Rich Menu 同步
@@ -234,6 +240,13 @@ function initSocketIO() {
     socket.on('tab:switch', (data) => {
         if (data.user_id === myUserId) return;
 
+        console.log('收到 tab:switch 事件', {
+            user_id: data.user_id,
+            user_name: data.user_name,
+            rich_menu_id: data.rich_menu_id,
+            color: data.color
+        });
+
         // 更新活躍編輯者列表
         activeEditors[data.user_id] = {
             richMenuId: data.rich_menu_id,
@@ -241,8 +254,51 @@ function initSocketIO() {
             color: data.color
         };
 
+        console.log('activeEditors 已更新', activeEditors);
+
         // 更新 Tab 指示器
         updateTabIndicators();
+
+        // 檢查是否在不同的 Tab
+        if (window.editorState) {
+            const state = window.editorState;
+            const currentRM = getCurrentRichMenu(state);
+
+            // 如果對方切換到不同的 Tab，顯示通知
+            if (currentRM && currentRM.id !== data.rich_menu_id) {
+                // 找到對方正在編輯的 Tab 名稱
+                const targetRM = state.project.richMenus.find(rm => rm.id === data.rich_menu_id);
+                const tabName = targetRM ? (targetRM.metadata.name || targetRM.name || 'Rich Menu') : 'Rich Menu';
+
+                showNotification(
+                    `${data.user_name} 正在編輯「${tabName}」`,
+                    'info'
+                );
+            }
+        }
+    });
+
+    // 接收初始標籤狀態（當加入專案時）
+    socket.on('tabs:initial_state', (data) => {
+        console.log('收到 tabs:initial_state 事件', data);
+
+        // 更新所有現有用戶的標籤狀態
+        if (data.active_tabs && Array.isArray(data.active_tabs)) {
+            data.active_tabs.forEach(tab => {
+                if (tab.user_id && tab.rich_menu_id) {
+                    activeEditors[tab.user_id] = {
+                        richMenuId: tab.rich_menu_id,
+                        userName: tab.user_name,
+                        color: tab.color
+                    };
+                }
+            });
+
+            console.log('初始 activeEditors 已設定', activeEditors);
+
+            // 更新 Tab 指示器
+            updateTabIndicators();
+        }
     });
 }
 
@@ -379,14 +435,20 @@ function showNotification(message, type = 'info') {
         z-index: 10001;
         font-size: 14px;
         max-width: 300px;
-        animation: slideIn 0.3s ease;
+        opacity: 0;
+        transition: opacity 0.3s ease;
     `;
     notification.textContent = message;
     document.body.appendChild(notification);
 
-    // 3 秒後自動移除
+    // 淡入效果（使用 requestAnimationFrame 確保 transition 生效）
+    requestAnimationFrame(() => {
+        notification.style.opacity = '1';
+    });
+
+    // 3 秒後淡出並移除
     setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease';
+        notification.style.opacity = '0';
         setTimeout(() => notification.remove(), 300);
     }, 3000);
 }
@@ -395,16 +457,30 @@ function showNotification(message, type = 'info') {
  * 更新 Tab 編輯狀態指示器
  */
 function updateTabIndicators() {
-    if (!window.editorState) return;
+    if (!window.editorState) {
+        console.log('updateTabIndicators: editorState 不存在');
+        return;
+    }
 
     const state = window.editorState;
-    const tabsContainer = document.querySelector('.rich-menu-tabs');
-    if (!tabsContainer) return;
+    const tabsContainer = document.querySelector('#richmenu-tabs');  // 修正：從 .rich-menu-tabs 改為 #richmenu-tabs
+    if (!tabsContainer) {
+        console.log('updateTabIndicators: 找不到 #richmenu-tabs 容器');
+        return;
+    }
+
+    console.log('updateTabIndicators: 開始更新指示器', {
+        richMenusCount: state.project.richMenus.length,
+        activeEditors: Object.keys(activeEditors).length
+    });
 
     // 遍歷所有 Rich Menu
     state.project.richMenus.forEach((rm, index) => {
         const tabEl = tabsContainer.querySelector(`[data-tab-index="${index}"]`);
-        if (!tabEl) return;
+        if (!tabEl) {
+            console.log(`updateTabIndicators: 找不到 tab[${index}]`);
+            return;
+        }
 
         // 移除現有的指示器
         const existingIndicator = tabEl.querySelector('.tab-editor-indicator');
@@ -417,6 +493,11 @@ function updateTabIndicators() {
             .filter(editor => editor.richMenuId === rm.id);
 
         if (editors.length > 0) {
+            console.log(`updateTabIndicators: 在 tab[${index}] 創建指示器`, {
+                richMenuId: rm.id,
+                editors: editors.map(e => e.userName)
+            });
+
             // 創建指示器
             const indicator = document.createElement('span');
             indicator.className = 'tab-editor-indicator';
@@ -1636,7 +1717,8 @@ function renderTabs(state) {
     state.project.richMenus.forEach((rm, index) => {
         const tab = document.createElement('div');
         tab.className = `tab ${index === state.currentTabIndex ? 'active' : ''}`;
-        tab.textContent = rm.name || `Rich Menu ${index + 1}`;
+        tab.dataset.tabIndex = index; // 加入 data 屬性以便 updateTabIndicators 找到
+        tab.textContent = rm.metadata.name || rm.name || `Rich Menu ${index + 1}`;
         tab.addEventListener('click', (e) => {
             e.preventDefault(); // 防止頁面跳動
             if (index === state.currentTabIndex) return; // 已經是當前 tab，不需要切換
@@ -1646,6 +1728,9 @@ function renderTabs(state) {
         });
         tabsEl.appendChild(tab);
     });
+
+    // 更新 Tab 指示器（顯示其他用戶正在編輯的 Tab）
+    updateTabIndicators();
 
     // Add-tab should be after all tabs
     const addBtn = document.createElement('button');

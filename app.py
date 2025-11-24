@@ -46,7 +46,7 @@ def index():
 # === Socket.IO 事件 ===
 
 # 儲存每個房間（專案）的線上使用者
-online_users = {}  # {project_id: {sid: {user_id, user_name, color}}}
+online_users = {}  # {project_id: {sid: {user_id, user_name, color, rich_menu_id}}}
 
 @socketio.on('connect')
 def handle_connect():
@@ -92,7 +92,8 @@ def handle_join_project(data):
     online_users[project_id][request.sid] = {
         'user_id': user_id,
         'user_name': user_name,
-        'color': color
+        'color': color,
+        'rich_menu_id': None  # 初始尚未選擇任何標籤
     }
     
     # 廣播使用者加入
@@ -102,13 +103,27 @@ def handle_join_project(data):
         'color': color
     }, room=project_id, skip_sid=request.sid)
     
-    # 回傳當前房間的所有使用者
+    # 回傳當前房間的所有使用者及其標籤狀態
     users_list = [
         {**info, 'sid': sid}
         for sid, info in online_users[project_id].items()
         if sid != request.sid
     ]
     emit('users:list', {'users': users_list})
+    
+    # 發送現有用戶的標籤狀態給新加入的用戶
+    active_tabs = [
+        {
+            'user_id': info['user_id'],
+            'user_name': info['user_name'],
+            'color': info['color'],
+            'rich_menu_id': info['rich_menu_id']
+        }
+        for sid, info in online_users[project_id].items()
+        if sid != request.sid and info.get('rich_menu_id') is not None
+    ]
+    if active_tabs:
+        emit('tabs:initial_state', {'active_tabs': active_tabs})
     
     print(f'User {user_name} joined project {project_id}')
 
@@ -235,6 +250,10 @@ def handle_tab_switch(data):
     user_id = data.get('user_id', request.sid)
     user_name = data.get('user_name', 'Anonymous')
     color = data.get('color', '#02a568')
+    
+    # 更新用戶當前的標籤狀態
+    if project_id in online_users and request.sid in online_users[project_id]:
+        online_users[project_id][request.sid]['rich_menu_id'] = rich_menu_id
     
     emit('tab:switch', {
         'rich_menu_id': rich_menu_id,
