@@ -560,6 +560,18 @@ window.getFlexMessage = async function getFlexMessage(id) {
     }
 };
 
+window.listFlexMessages = async function listFlexMessages() {
+    try {
+        const response = await fetch(`${API_BASE}/flex-messages`);
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '無法取得列表');
+        return data.data;
+    } catch (e) {
+        console.error('listFlexMessages error:', e);
+        return [];
+    }
+};
+
 window.updateFlexMessage = async function updateFlexMessage(id, name, jsonContent) {
     try {
         const response = await fetch(`${API_BASE}/flex-messages/${id}`, {

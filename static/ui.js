@@ -3243,7 +3243,7 @@ function renderActionFields(state) {
             if (val) {
                 area.action.flexMessageId = val;
                 area.action.data = `action=flex&id=${val}`;
-                area.action.displayText = area.action.displayText || 'Flex Message';
+                // area.action.displayText = area.action.displayText || 'Flex Message'; 
                 renderJsonPreview(state);
                 if (state.scheduleAutosave) state.scheduleAutosave();
                 editBtn.style.display = 'inline-block';
@@ -3292,7 +3292,8 @@ function renderActionFields(state) {
         fields.appendChild(wrapper);
 
         // displayText field (Optional)
-        addTextarea('文字顯示 (聊天室顯示文字)', 'displayText', area.action.displayText, 300);
+        // displayText field (Optional)
+        addTextarea('文字顯示 (聊天室顯示文字，留空則不顯示)', 'displayText', area.action.displayText, 300);
     }
 }
 
@@ -3443,7 +3444,7 @@ function normalizeAction(action) {
     if (t === 'uri') return { type: 'uri', uri: action.uri || '' };
     if (t === 'message') return { type: 'message', text: action.text || '' };
     if (t === 'postback') return { type: 'postback', data: action.data || '', displayText: action.displayText || undefined };
-    if (t === 'flex') return { type: 'postback', data: action.data || '', displayText: action.displayText || 'Flex Message' };
+    if (t === 'flex') return { type: 'postback', data: action.data || '', displayText: action.displayText || undefined };
     if (t === 'richmenuswitch') return { type: 'richmenuswitch', richMenuAliasId: action.richMenuAliasId || '', data: action.data || undefined };
     return undefined;
 }
