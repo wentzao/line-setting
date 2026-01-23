@@ -1372,6 +1372,7 @@ async function renderEditor(projectId) {
                             <option value="uri">開啟連結 (uri)</option>
                             <option value="message">傳送訊息 (message)</option>
                             <option value="postback">Postback (postback)</option>
+                            <option value="flex">回傳 Flex Message</option>
                             <option value="richmenuswitch">切換選單 (richmenuswitch)</option>
                         </select>
                     </div>
@@ -2214,13 +2215,21 @@ function wireMetadataInputs(state) {
 async function onImageSelected(e, state) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+
+    // Capture current Rich Menu immediately to prevent race condition when switching tabs
+    const currentRM = getCurrentRichMenu(state);
+    if (!currentRM) return;
+
     if (!/image\/(png|jpeg)/.test(file.type)) {
         alert('只接受 PNG 或 JPEG');
         return;
     }
     const dataUrl = await readFileAsDataUrl(file);
     const dim = await getImageDimensions(dataUrl);
-    const currentRM = getCurrentRichMenu(state);
+
+    if (!currentRM.metadata || !currentRM.metadata.size) {
+        currentRM.metadata = { size: { width: 2500, height: 1686 } };
+    }
     const { width: expectW, height: expectH } = currentRM.metadata.size;
     // Accept 1200x810 (will upscale on upload) or exact 2500x1686
     const acceptW = 1200, acceptH = 810;
@@ -2939,6 +2948,9 @@ function wireActionPanel(state) {
             if (val === 'richmenuswitch') {
                 area.action.richMenuAliasId = '';
                 area.action.data = '';
+            } else if (val === 'flex') {
+                area.action.data = '';
+                area.action.displayText = 'Flex Message';
             }
         }
         renderActionFields(state);
@@ -3145,8 +3157,267 @@ function renderActionFields(state) {
         }
 
         // data 欄位不再顯示，已自動處理
+    } else if (type === 'flex') {
+        const wrapper = document.createElement('div');
+
+        // Ensure Modal exists
+        createFlexEditorModal();
+
+        // Flex container for Select + Edit Button
+        const controls = document.createElement('div');
+        controls.style.display = 'flex';
+        controls.style.gap = '8px';
+        controls.style.alignItems = 'flex-end';
+        controls.className = 'form-group';
+
+        // 1. Selector
+        const selContainer = document.createElement('div');
+        selContainer.style.flex = '1';
+        const selLabel = document.createElement('label');
+        selLabel.textContent = '選擇 Flex Message';
+        const select = document.createElement('select');
+        select.style.marginBottom = '0'; // Override default margin for alignment
+
+        // Edit Button
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn secondary small';
+        editBtn.innerHTML = '✏️'; // Pencil icon
+        editBtn.title = '編輯此 Flex Message';
+        editBtn.style.display = 'none';
+
+        const refreshList = async () => {
+            select.innerHTML = '';
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.text = '-- 請選擇 --';
+            select.appendChild(defaultOpt);
+
+            const msgs = await listFlexMessages();
+            msgs.forEach(acc => {
+                const opt = document.createElement('option');
+                opt.value = acc.id;
+                opt.textContent = `${acc.name}`;
+                if (area.action.flexMessageId == acc.id) opt.selected = true;
+                select.appendChild(opt);
+            });
+
+            // Add "Create New" option
+            const newOpt = document.createElement('option');
+            newOpt.value = 'NEW';
+            newOpt.text = '+ 新增 Flex Message...';
+            newOpt.style.fontWeight = 'bold';
+            newOpt.style.color = '#02a568';
+            select.appendChild(newOpt);
+
+            // Update UI state based on current selection
+            const currentId = select.value;
+            if (currentId && currentId !== 'NEW') {
+                editBtn.style.display = 'inline-block';
+            } else {
+                editBtn.style.display = 'none';
+            }
+        };
+
+        select.addEventListener('change', () => {
+            const val = select.value;
+            // If user selected "Create New", open modal immediately
+            if (val === 'NEW') {
+                // Reset selection to avoid showing "NEW" selected
+                select.value = area.action.flexMessageId || '';
+                openFlexEditorModal(null, async (newId) => {
+                    await refreshList();
+                    // Select the new one
+                    if (newId) {
+                        // Find option with newId
+                        const opts = Array.from(select.options);
+                        if (opts.find(o => o.value == newId)) {
+                            select.value = newId;
+                            // Trigger logic for selecting existing
+                            select.dispatchEvent(new Event('change'));
+                        }
+                    }
+                });
+                return;
+            }
+
+            if (val) {
+                area.action.flexMessageId = val;
+                area.action.data = `action=flex&id=${val}`;
+                area.action.displayText = area.action.displayText || 'Flex Message';
+                renderJsonPreview(state);
+                if (state.scheduleAutosave) state.scheduleAutosave();
+                editBtn.style.display = 'inline-block';
+            } else {
+                // Cleared
+                area.action.flexMessageId = '';
+                area.action.data = '';
+                editBtn.style.display = 'none';
+            }
+        });
+
+        // Edit Button Click
+        editBtn.addEventListener('click', () => {
+            const fid = area.action.flexMessageId;
+            if (fid) {
+                openFlexEditorModal(fid, async hidingFleID => {
+                    await refreshList(); // Refresh list in case name changed or deleted
+
+                    // Re-select if still exists (hidingFleID is null if deleted)
+                    if (hidingFleID) {
+                        const opts = Array.from(select.options);
+                        if (opts.find(o => o.value == hidingFleID)) {
+                            select.value = hidingFleID;
+                        }
+                    } else {
+                        // Deleted
+                        area.action.flexMessageId = '';
+                        area.action.data = '';
+                        select.value = '';
+                        editBtn.style.display = 'none';
+                    }
+                    renderJsonPreview(state);
+                });
+            }
+        });
+
+        // Init list
+        refreshList();
+
+        selContainer.appendChild(selLabel);
+        selContainer.appendChild(select);
+        controls.appendChild(selContainer);
+        controls.appendChild(editBtn);
+        wrapper.appendChild(controls);
+
+        fields.appendChild(wrapper);
+
+        // displayText field (Optional)
+        addTextarea('文字顯示 (聊天室顯示文字)', 'displayText', area.action.displayText, 300);
     }
 }
+
+// === Flex Message Editor Modal ===
+function createFlexEditorModal() {
+    if (document.getElementById('flex-editor-modal')) return;
+
+    const modalHtml = `
+    <div id="flex-editor-modal" class="modal-backdrop" aria-hidden="true" style="z-index: 10000;">
+        <div class="modal modal-large" role="dialog" aria-modal="true">
+            <div class="modal-header">
+                <h3 id="flex-modal-title">Flex Message 設定</h3>
+                <button class="modal-close" id="close-flex-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>名稱 (識別用)</label>
+                    <input type="text" id="flex-name" placeholder="例如：課程介紹卡片">
+                </div>
+                <div class="form-group">
+                    <label>Flex Message JSON (此處填寫 JSON 內容 object)</label>
+                    <textarea id="flex-json" rows="15" style="font-family: monospace; font-size: 12px;" placeholder='{ "type": "bubble", ... }'></textarea>
+                    <div style="text-align: right; margin-top: 5px;">
+                       <a href="https://developers.line.biz/flex-simulator/" target="_blank" style="font-size: 0.9em; color: #02a568;">開啟 LINE Flex Simulator ↗</a>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between;">
+                <button id="delete-flex-btn" class="btn danger" style="display: none;">刪除</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="cancel-flex-btn" class="btn secondary">取消</button>
+                    <button id="save-flex-btn" class="btn primary">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Close handlers
+    const modal = document.getElementById('flex-editor-modal');
+    const close = () => modal.classList.remove('show');
+    document.getElementById('close-flex-modal').addEventListener('click', close);
+    document.getElementById('cancel-flex-btn').addEventListener('click', close);
+}
+
+async function openFlexEditorModal(flexId, onSaveCallback) {
+    const modal = document.getElementById('flex-editor-modal');
+    const title = document.getElementById('flex-modal-title');
+    const nameInput = document.getElementById('flex-name');
+    const jsonInput = document.getElementById('flex-json');
+    const deleteBtn = document.getElementById('delete-flex-btn');
+    const saveBtn = document.getElementById('save-flex-btn');
+
+    // Reset
+    nameInput.value = '';
+    jsonInput.value = '';
+    deleteBtn.style.display = 'none';
+
+    if (flexId) {
+        title.textContent = '編輯 Flex Message';
+        deleteBtn.style.display = 'block';
+        // Load data
+        const data = await getFlexMessage(flexId);
+        if (data) {
+            nameInput.value = data.name;
+            jsonInput.value = JSON.stringify(data.json_content, null, 2);
+        }
+    } else {
+        title.textContent = '新增 Flex Message';
+    }
+
+    modal.classList.add('show');
+
+    // Remove old listeners to prevent duplication (simple clone replacement)
+    const newSaveBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+
+    const newDeleteBtn = deleteBtn.cloneNode(true);
+    deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
+
+    newSaveBtn.addEventListener('click', async () => {
+        const name = nameInput.value.trim();
+        const jsonStr = jsonInput.value.trim();
+
+        if (!name) return alert('請輸入名稱');
+        if (!jsonStr) return alert('請輸入 JSON');
+
+        let parsed;
+        try {
+            parsed = JSON.parse(jsonStr);
+        } catch (e) {
+            return alert('JSON 格式錯誤');
+        }
+
+        try {
+            let resultId = flexId;
+            if (flexId) {
+                await updateFlexMessage(flexId, name, parsed);
+            } else {
+                const res = await createFlexMessage(name, parsed);
+                resultId = res.id;
+            }
+            modal.classList.remove('show');
+            if (onSaveCallback) onSaveCallback(resultId);
+        } catch (e) {
+            alert('儲存失敗: ' + e.message);
+        }
+    });
+
+    if (flexId) {
+        newDeleteBtn.addEventListener('click', async () => {
+            if (!confirm('確定要刪除此 Flex Message 嗎？此動作無法復原。')) return;
+            try {
+                await deleteFlexMessage(flexId);
+                modal.classList.remove('show');
+                if (onSaveCallback) onSaveCallback(null); // null indicates deletion
+            } catch (e) {
+                alert('刪除失敗: ' + e.message);
+            }
+        });
+    }
+}
+
+
 
 function renderJsonPreview(state) {
     const currentRM = getCurrentRichMenu(state);
@@ -3172,6 +3443,7 @@ function normalizeAction(action) {
     if (t === 'uri') return { type: 'uri', uri: action.uri || '' };
     if (t === 'message') return { type: 'message', text: action.text || '' };
     if (t === 'postback') return { type: 'postback', data: action.data || '', displayText: action.displayText || undefined };
+    if (t === 'flex') return { type: 'postback', data: action.data || '', displayText: action.displayText || 'Flex Message' };
     if (t === 'richmenuswitch') return { type: 'richmenuswitch', richMenuAliasId: action.richMenuAliasId || '', data: action.data || undefined };
     return undefined;
 }
@@ -3298,6 +3570,10 @@ function validateRichMenuMetadata(metadata) {
                 issues.push(`areas[${index}].action.richMenuAliasId 必須指定`);
             }
             // act.data is optional for richmenuswitch
+        } else if (act.type === 'flex') {
+            if (!act.data || act.data.trim() === '') {
+                issues.push(`areas[${index}].action: 請選擇或建立一個 Flex Message`);
+            }
         }
     });
 

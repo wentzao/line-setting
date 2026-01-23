@@ -389,6 +389,98 @@ def delete_alias(account_id, alias_id):
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
 
+# === Flex Messages API ===
+
+@api_bp.route('/flex-messages', methods=['GET'])
+@apply_auth
+def list_flex_messages():
+    """列出所有 Flex Messages"""
+    try:
+        msgs = db.list_flex_messages()
+        return jsonify({'ok': True, 'data': msgs})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/flex-messages', methods=['POST'])
+@apply_auth
+def create_flex_message():
+    """新增 Flex Message"""
+    try:
+        data = request.get_json()
+        name = data.get('name', 'Flex Message').strip()
+        json_content = data.get('json_content')
+        
+        if not json_content:
+            return jsonify({'ok': False, 'message': 'Flex Message 內容不能為空'}), 400
+        
+        # 簡單驗證 JSON
+        if isinstance(json_content, str):
+            try:
+                json_content = json.loads(json_content)
+            except:
+                return jsonify({'ok': False, 'message': '無效的 JSON 格式'}), 400
+        
+        msg_id = db.create_flex_message(name, json_content)
+        return jsonify({'ok': True, 'data': {'id': msg_id, 'name': name}})
+    
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/flex-messages/<int:flex_id>', methods=['GET'])
+@apply_auth
+def get_flex_message(flex_id):
+    """取得 Flex Message (內部用)"""
+    try:
+        msg = db.get_flex_message(flex_id)
+        if not msg:
+            return jsonify({'ok': False, 'message': '找不到 Flex Message'}), 404
+        return jsonify({'ok': True, 'data': msg})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/flex-messages/<int:flex_id>', methods=['PUT'])
+@apply_auth
+def update_flex_message(flex_id):
+    """更新 Flex Message"""
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        json_content = data.get('json_content')
+        
+        # 簡單驗證 JSON
+        if json_content is not None and isinstance(json_content, str):
+            try:
+                json_content = json.loads(json_content)
+            except:
+                return jsonify({'ok': False, 'message': '無效的 JSON 格式'}), 400
+        
+        db.update_flex_message(flex_id, name, json_content)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/flex-messages/<int:flex_id>', methods=['DELETE'])
+@apply_auth
+def delete_flex_message(flex_id):
+    """刪除 Flex Message"""
+    try:
+        db.delete_flex_message(flex_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/public/flex-messages/<int:flex_id>', methods=['GET'])
+@apply_auth
+def get_flex_message_public(flex_id):
+    """取得 Flex Message (給外部 Bot 呼叫用)"""
+    try:
+        msg = db.get_flex_message(flex_id)
+        if not msg:
+            return jsonify({'ok': False, 'message': 'Not Found'}), 404
+        return jsonify(msg['json_content'])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 def allowed_file(filename):
     """檢查檔案副檔名是否允許"""
     return '.' in filename and \

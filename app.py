@@ -9,6 +9,7 @@ import config
 import db
 from api_routes import api_bp
 from line_proxy import line_proxy_bp
+from webhook import webhook_bp
 from auth import check_ip_whitelist
 
 # 初始化 Flask
@@ -26,6 +27,7 @@ socketio = SocketIO(
 # 註冊 Blueprint
 app.register_blueprint(api_bp)
 app.register_blueprint(line_proxy_bp)
+app.register_blueprint(webhook_bp)
 
 # 全域 CORS（允許前端呼叫）
 @app.after_request

@@ -106,6 +106,16 @@ def init_db():
         )
     ''')
     
+    # flex_messages 表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS flex_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            json_content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     print('✓ 資料庫初始化完成')
@@ -493,6 +503,96 @@ def delete_alias(account_id, alias_id):
     ''', (account_id, alias_id))
     conn.commit()
     conn.close()
+
+# === Flex Messages API ===
+
+def create_flex_message(name, json_content):
+    """新增 Flex Message"""
+    conn = get_db()
+    cursor = conn.cursor()
+    created_at = datetime.utcnow().isoformat()
+    
+    # Ensure json_content is string
+    if isinstance(json_content, dict):
+        json_content = json.dumps(json_content)
+        
+    cursor.execute('''
+        INSERT INTO flex_messages (name, json_content, created_at)
+        VALUES (?, ?, ?)
+    ''', (name, json_content, created_at))
+    
+    conn.commit()
+    msg_id = cursor.lastrowid
+    conn.close()
+    return msg_id
+
+def get_flex_message(flex_id):
+    """取得 Flex Message"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM flex_messages WHERE id = ?', (flex_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'json_content': json.loads(row['json_content']),
+            'created_at': row['created_at']
+        }
+    return None
+
+def list_flex_messages():
+    """列出所有 Flex Messages"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM flex_messages ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [{
+        'id': row['id'],
+        'name': row['name'],
+        'json_content': json.loads(row['json_content']),
+        'created_at': row['created_at']
+    } for row in rows]
+
+
+def update_flex_message(flex_id, name=None, json_content=None):
+    """更新 Flex Message"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    updates = []
+    values = []
+    
+    if name is not None:
+        updates.append('name = ?')
+        values.append(name)
+    
+    if json_content is not None:
+        if isinstance(json_content, dict):
+            json_content = json.dumps(json_content)
+        updates.append('json_content = ?')
+        values.append(json_content)
+        
+    if updates:
+        values.append(flex_id)
+        sql = f'UPDATE flex_messages SET {", ".join(updates)} WHERE id = ?'
+        cursor.execute(sql, values)
+        conn.commit()
+    
+    conn.close()
+
+def delete_flex_message(flex_id):
+    """刪除 Flex Message"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM flex_messages WHERE id = ?', (flex_id,))
+    conn.commit()
+    conn.close()
+
 
 if __name__ == '__main__':
     init_db()
