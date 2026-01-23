@@ -477,7 +477,12 @@ def get_flex_message_public(flex_id):
         msg = db.get_flex_message(flex_id)
         if not msg:
             return jsonify({'ok': False, 'message': 'Not Found'}), 404
-        return jsonify(msg['json_content'])
+        
+        # Return both name and contents
+        return jsonify({
+            'name': msg['name'],
+            'contents': msg['json_content']
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

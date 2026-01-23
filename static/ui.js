@@ -3184,6 +3184,9 @@ function renderActionFields(state) {
         editBtn.innerHTML = '✏️'; // Pencil icon
         editBtn.title = '編輯此 Flex Message';
         editBtn.style.display = 'none';
+        editBtn.style.minHeight = '35px'; // Fix height mismatch
+        editBtn.style.padding = '0 10px';
+        editBtn.style.marginBottom = '1px';
 
         const refreshList = async () => {
             select.innerHTML = '';
