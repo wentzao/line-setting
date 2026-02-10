@@ -12,27 +12,29 @@ import config
 
 logger = logging.getLogger('scheduler')
 logger.setLevel(logging.INFO)
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
-    logger.addHandler(_handler)
+
+# APScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+
+scheduler = None
 
 def init_scheduler(app):
-    """初始化排程器，使用 eventlet green thread 每 60 秒檢查一次"""
-    import eventlet
-    def _loop():
-        while True:
-            try:
-                check_and_run_jobs()
-            except Exception as e:
-                logger.error(f'❌ 排程迴圈錯誤: {e}')
-            eventlet.sleep(60)
-    eventlet.spawn(_loop)
-    logger.info('✓ 排程器已啟動（每 60 秒檢查一次，eventlet green thread）')
+    """初始化排程器，每分鐘檢查一次到期的排程任務"""
+    global scheduler
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(
+        func=check_and_run_jobs,
+        trigger=IntervalTrigger(minutes=1),
+        id='scheduled_upload_checker',
+        name='Check and run scheduled uploads',
+        replace_existing=True
+    )
+    scheduler.start()
+    logger.info('✓ 排程器已啟動（每分鐘檢查一次）')
 
 def check_and_run_jobs():
     """檢查並執行到期的排程任務"""
-    logger.info('🔍 排程檢查中...')
     try:
         import pytz
         tz = pytz.timezone('Asia/Taipei')
