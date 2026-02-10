@@ -116,6 +116,32 @@ def init_db():
         )
     ''')
     
+    # scheduled_jobs 表（定時排程上傳）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            scope TEXT NOT NULL DEFAULT 'all',
+            current_tab_index INTEGER DEFAULT 0,
+            publish_target TEXT NOT NULL DEFAULT 'all',
+            user_ids TEXT,
+            default_menu_index INTEGER DEFAULT -1,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            run_time TEXT NOT NULL DEFAULT '00:00',
+            repeat_type TEXT NOT NULL DEFAULT 'daily',
+            repeat_weekday INTEGER,
+            repeat_day INTEGER,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            last_run_at TEXT,
+            last_run_status TEXT,
+            last_run_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     print('✓ 資料庫初始化完成')
@@ -592,6 +618,179 @@ def delete_flex_message(flex_id):
     cursor.execute('DELETE FROM flex_messages WHERE id = ?', (flex_id,))
     conn.commit()
     conn.close()
+
+
+# === Scheduled Jobs API ===
+
+def create_scheduled_job(project_id, scope='all', current_tab_index=0,
+                         publish_target='all', user_ids=None,
+                         default_menu_index=-1, start_date='', end_date='',
+                         run_time='00:00', repeat_type='daily',
+                         repeat_weekday=None, repeat_day=None):
+    """新增排程任務"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    
+    user_ids_json = json.dumps(user_ids) if user_ids else None
+    
+    cursor.execute('''
+        INSERT INTO scheduled_jobs (
+            project_id, scope, current_tab_index, publish_target, user_ids,
+            default_menu_index, start_date, end_date, run_time,
+            repeat_type, repeat_weekday, repeat_day,
+            enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    ''', (
+        project_id, scope, current_tab_index, publish_target, user_ids_json,
+        default_menu_index, start_date, end_date, run_time,
+        repeat_type, repeat_weekday, repeat_day,
+        now, now
+    ))
+    
+    conn.commit()
+    job_id = cursor.lastrowid
+    conn.close()
+    return job_id
+
+def get_scheduled_job(job_id):
+    """取得排程任務"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM scheduled_jobs WHERE id = ?', (job_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return _row_to_scheduled_job(row)
+    return None
+
+def list_scheduled_jobs_by_project(project_id):
+    """列出該專案的所有排程任務"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM scheduled_jobs WHERE project_id = ? ORDER BY created_at DESC
+    ''', (project_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [_row_to_scheduled_job(row) for row in rows]
+
+def list_due_scheduled_jobs(today_str, current_time_str, weekday, day_of_month):
+    """取得當前應執行的排程任務
+    
+    Args:
+        today_str: 'YYYY-MM-DD'
+        current_time_str: 'HH:MM'
+        weekday: 0-6 (Monday=0)
+        day_of_month: 1-31
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # 取得所有啟用中且在日期區間內、時間匹配的排程
+    cursor.execute('''
+        SELECT * FROM scheduled_jobs
+        WHERE enabled = 1
+          AND start_date <= ?
+          AND end_date >= ?
+          AND run_time = ?
+    ''', (today_str, today_str, current_time_str))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for row in rows:
+        job = _row_to_scheduled_job(row)
+        repeat_type = job['repeat_type']
+        
+        if repeat_type == 'daily':
+            result.append(job)
+        elif repeat_type == 'weekly' and job.get('repeat_weekday') == weekday:
+            result.append(job)
+        elif repeat_type == 'monthly' and job.get('repeat_day') == day_of_month:
+            result.append(job)
+        elif repeat_type == 'once':
+            # 僅一次：開始日期 == 今天
+            if job['start_date'] == today_str:
+                result.append(job)
+    
+    return result
+
+def update_scheduled_job(job_id, **kwargs):
+    """更新排程任務"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    
+    allowed_fields = [
+        'scope', 'current_tab_index', 'publish_target', 'user_ids',
+        'default_menu_index', 'start_date', 'end_date', 'run_time',
+        'repeat_type', 'repeat_weekday', 'repeat_day', 'enabled',
+        'last_run_at', 'last_run_status', 'last_run_message'
+    ]
+    
+    updates = []
+    values = []
+    
+    for key, value in kwargs.items():
+        if key in allowed_fields:
+            if key == 'user_ids' and isinstance(value, list):
+                value = json.dumps(value)
+            updates.append(f'{key} = ?')
+            values.append(value)
+    
+    if updates:
+        updates.append('updated_at = ?')
+        values.append(now)
+        values.append(job_id)
+        
+        sql = f'UPDATE scheduled_jobs SET {", ".join(updates)} WHERE id = ?'
+        cursor.execute(sql, values)
+        conn.commit()
+    
+    conn.close()
+
+def delete_scheduled_job(job_id):
+    """刪除排程任務"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM scheduled_jobs WHERE id = ?', (job_id,))
+    conn.commit()
+    conn.close()
+
+def _row_to_scheduled_job(row):
+    """將資料庫 row 轉換為排程任務 dict"""
+    user_ids = None
+    if row['user_ids']:
+        try:
+            user_ids = json.loads(row['user_ids'])
+        except (json.JSONDecodeError, TypeError):
+            user_ids = None
+    
+    return {
+        'id': row['id'],
+        'project_id': row['project_id'],
+        'scope': row['scope'],
+        'current_tab_index': row['current_tab_index'],
+        'publish_target': row['publish_target'],
+        'user_ids': user_ids,
+        'default_menu_index': row['default_menu_index'],
+        'start_date': row['start_date'],
+        'end_date': row['end_date'],
+        'run_time': row['run_time'],
+        'repeat_type': row['repeat_type'],
+        'repeat_weekday': row['repeat_weekday'],
+        'repeat_day': row['repeat_day'],
+        'enabled': bool(row['enabled']),
+        'last_run_at': row['last_run_at'],
+        'last_run_status': row['last_run_status'],
+        'last_run_message': row['last_run_message'],
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at']
+    }
 
 
 if __name__ == '__main__':

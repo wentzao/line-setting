@@ -486,6 +486,87 @@ def get_flex_message_public(flex_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# === Scheduled Jobs API ===
+
+@api_bp.route('/projects/<int:project_id>/schedules', methods=['GET'])
+@apply_auth
+def list_schedules(project_id):
+    """列出該專案的所有排程"""
+    try:
+        jobs = db.list_scheduled_jobs_by_project(project_id)
+        return jsonify({'ok': True, 'data': jobs})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/projects/<int:project_id>/schedules', methods=['POST'])
+@apply_auth
+def create_schedule(project_id):
+    """建立排程（含完整上傳設定快照）"""
+    try:
+        data = request.get_json()
+        
+        start_date = data.get('start_date', '').strip()
+        end_date = data.get('end_date', '').strip()
+        run_time = data.get('run_time', '00:00').strip()
+        repeat_type = data.get('repeat_type', 'daily').strip()
+        
+        if not start_date or not end_date:
+            return jsonify({'ok': False, 'message': '開始日期和結束日期不能為空'}), 400
+        
+        if start_date > end_date and repeat_type != 'once':
+            return jsonify({'ok': False, 'message': '開始日期不能晚於結束日期'}), 400
+        
+        job_id = db.create_scheduled_job(
+            project_id=project_id,
+            scope=data.get('scope', 'all'),
+            current_tab_index=data.get('current_tab_index', 0),
+            publish_target=data.get('publish_target', 'all'),
+            user_ids=data.get('user_ids'),
+            default_menu_index=data.get('default_menu_index', -1),
+            start_date=start_date,
+            end_date=end_date,
+            run_time=run_time,
+            repeat_type=repeat_type,
+            repeat_weekday=data.get('repeat_weekday'),
+            repeat_day=data.get('repeat_day')
+        )
+        return jsonify({'ok': True, 'data': {'id': job_id}})
+    
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/schedules/<int:job_id>', methods=['PUT'])
+@apply_auth
+def update_schedule(job_id):
+    """更新排程"""
+    try:
+        data = request.get_json()
+        db.update_scheduled_job(job_id, **data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/schedules/<int:job_id>', methods=['DELETE'])
+@apply_auth
+def delete_schedule(job_id):
+    """刪除排程"""
+    try:
+        db.delete_scheduled_job(job_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/schedules/<int:job_id>/run-now', methods=['POST'])
+@apply_auth
+def run_schedule_now(job_id):
+    """手動觸發排程執行（debug 用）"""
+    try:
+        from scheduler import execute_single_job
+        result = execute_single_job(job_id)
+        return jsonify({'ok': True, 'data': result})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
 def allowed_file(filename):
     """檢查檔案副檔名是否允許"""
     return '.' in filename and \

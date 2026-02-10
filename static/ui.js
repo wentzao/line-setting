@@ -1454,52 +1454,159 @@ async function renderEditor(projectId) {
             </div>
 
             <div id="upload-modal" class="modal-backdrop" aria-hidden="true">
-                <div class="modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
+                <div class="modal modal-large" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
                     <div class="modal-header">
                         <h3 id="upload-modal-title">上傳與發佈</h3>
                         <button class="modal-close" id="close-upload-modal-x" aria-label="關閉">&times;</button>
                     </div>
-                    <div class="modal-body">
-                        <div class="form-group">
-                            <label>上傳範圍</label>
-                            <div>
-                                <label><input type="radio" name="upload-scope" value="single" checked> 僅上傳目前這個 Rich Menu</label>
-                            </div>
-                            <div>
-                                <label><input type="radio" name="upload-scope" value="all"> 上傳專案內所有 Rich Menu</label>
-                            </div>
-                        </div>
-                        <div id="publish-target-group" class="form-group">
-                            <label>發佈目標</label>
-                            <div>
-                                <label><input type="radio" name="publish-target" value="all" checked> 傳給所有人（設為預設）</label>
-                            </div>
-                            <div>
-                                <label><input type="radio" name="publish-target" value="users"> 傳給特定使用者</label>
-                            </div>
-                        </div>
-                        <div id="users-input-group" class="form-group" style="display:none;">
-                            <label for="user-ids">使用者 ID（每行一個）</label>
-                            <textarea id="user-ids" rows="5" placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nUyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"></textarea>
-                            <div class="inline" style="margin-top:6px;">
-                                <button id="unlink-users" class="btn small secondary">移除這些使用者的綁定</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="default-menu-select">上傳後設為預設選單</label>
-                            <select id="default-menu-select">
-                                <option value="">不設定預設</option>
-                            </select>
-                            <small class="grid-note">預設選單會自動顯示給所有未個別綁定的使用者</small>
-                        </div>
-                        <div class="form-group">
-                            <small>上傳前會自動刪除 LINE 端相同名稱的 Rich Menu。</small>
-                        </div>
-                        <div id="upload-status" class="error"></div>
+                    
+                    <!-- Upload Modal Tabs -->
+                    <div class="upload-tabs-container">
+                        <button class="upload-tab active" data-upload-tab="single">單次上傳</button>
+                        <button class="upload-tab" data-upload-tab="schedule">排程上傳</button>
                     </div>
-                    <div class="modal-footer">
-                        <button id="cancel-upload" class="btn secondary">取消</button>
-                        <button id="confirm-upload" class="btn">開始上傳</button>
+                    
+                    <!-- 單次上傳 Tab -->
+                    <div class="upload-tab-panel active" data-upload-panel="single">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>上傳範圍</label>
+                                <div>
+                                    <label><input type="radio" name="upload-scope" value="single" checked> 僅上傳目前這個 Rich Menu</label>
+                                </div>
+                                <div>
+                                    <label><input type="radio" name="upload-scope" value="all"> 上傳專案內所有 Rich Menu</label>
+                                </div>
+                            </div>
+                            <div id="publish-target-group" class="form-group">
+                                <label>發佈目標</label>
+                                <div>
+                                    <label><input type="radio" name="publish-target" value="all" checked> 傳給所有人（設為預設）</label>
+                                </div>
+                                <div>
+                                    <label><input type="radio" name="publish-target" value="users"> 傳給特定使用者</label>
+                                </div>
+                            </div>
+                            <div id="users-input-group" class="form-group" style="display:none;">
+                                <label for="user-ids">使用者 ID（每行一個）</label>
+                                <textarea id="user-ids" rows="5" placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nUyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"></textarea>
+                                <div class="inline" style="margin-top:6px;">
+                                    <button id="unlink-users" class="btn small secondary">移除這些使用者的綁定</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="default-menu-select">上傳後設為預設選單</label>
+                                <select id="default-menu-select">
+                                    <option value="">不設定預設</option>
+                                </select>
+                                <small class="grid-note">預設選單會自動顯示給所有未個別綁定的使用者</small>
+                            </div>
+                            <div class="form-group">
+                                <small>上傳前會自動刪除 LINE 端相同名稱的 Rich Menu。</small>
+                            </div>
+                            <div id="upload-status" class="error"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button id="cancel-upload" class="btn secondary">取消</button>
+                            <button id="confirm-upload" class="btn">開始上傳</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 排程上傳 Tab -->
+                    <div class="upload-tab-panel" data-upload-panel="schedule">
+                        <div class="modal-body">
+                            <!-- 排程卡片列表（上方） -->
+                            <div id="schedule-list" class="schedule-card-list">
+                                <p class="schedule-empty">尚無排程</p>
+                            </div>
+                            
+                            <hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+                            
+                            <!-- 排程表單（下方） -->
+                            <div class="schedule-form-section">
+                                <div class="form-group">
+                                    <label>上傳範圍</label>
+                                    <div>
+                                        <label><input type="radio" name="sched-scope" value="single" checked> 僅上傳目前這個 Rich Menu</label>
+                                    </div>
+                                    <div>
+                                        <label><input type="radio" name="sched-scope" value="all"> 上傳專案內所有 Rich Menu</label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>發佈目標</label>
+                                    <div>
+                                        <label><input type="radio" name="sched-target" value="all" checked> 傳給所有人（設為預設）</label>
+                                    </div>
+                                    <div>
+                                        <label><input type="radio" name="sched-target" value="users"> 傳給特定使用者</label>
+                                    </div>
+                                </div>
+                                <div id="sched-users-group" class="form-group" style="display:none;">
+                                    <label for="sched-user-ids">使用者 ID（每行一個）</label>
+                                    <textarea id="sched-user-ids" rows="5" placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nUyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="sched-default-menu">上傳後設為預設選單</label>
+                                    <select id="sched-default-menu">
+                                        <option value="-1">不設定預設</option>
+                                    </select>
+                                    <small class="grid-note">預設選單會自動顯示給所有未個別綁定的使用者</small>
+                                </div>
+                                <div class="form-group">
+                                    <small>上傳前會自動刪除 LINE 端相同名稱的 Rich Menu。</small>
+                                </div>
+                                <hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+                                <div class="form-group">
+                                    <label>重複頻率</label>
+                                    <div class="sched-repeat-options">
+                                        <label><input type="radio" name="sched-repeat" value="daily" checked> 每天</label>
+                                        <label><input type="radio" name="sched-repeat" value="weekly"> 每週</label>
+                                        <label><input type="radio" name="sched-repeat" value="monthly"> 每月</label>
+                                    </div>
+                                </div>
+                                <div id="sched-weekday-group" class="form-group" style="display:none;">
+                                    <label for="sched-weekday">星期幾</label>
+                                    <select id="sched-weekday">
+                                        <option value="0">星期一</option>
+                                        <option value="1">星期二</option>
+                                        <option value="2">星期三</option>
+                                        <option value="3">星期四</option>
+                                        <option value="4">星期五</option>
+                                        <option value="5">星期六</option>
+                                        <option value="6">星期日</option>
+                                    </select>
+                                </div>
+                                <div id="sched-day-group" class="form-group" style="display:none;">
+                                    <label for="sched-day">每月幾號</label>
+                                    <select id="sched-day">
+                                        ${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="sched-time">執行時間</label>
+                                    <input type="time" id="sched-time" value="00:00" />
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group" style="flex:1;">
+                                        <label for="sched-start-date">開始日期</label>
+                                        <input type="date" id="sched-start-date" />
+                                    </div>
+                                    <div class="form-group" style="flex:1;">
+                                        <label for="sched-end-date">結束日期</label>
+                                        <input type="date" id="sched-end-date" />
+                                    </div>
+                                </div>
+                                <div id="sched-error" class="error"></div>
+                                <div class="sched-form-actions">
+                                    <button id="sched-submit-btn" class="btn" style="flex:1;">新增排程</button>
+                                    <button id="sched-delete-btn" class="btn danger" style="display:none;">刪除</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button id="close-schedule-tab" class="btn secondary">關閉</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1667,6 +1774,191 @@ async function renderEditor(projectId) {
             confirmBtn.textContent = '開始上傳';
         }
     });
+
+    // === Upload Modal Tab Switching ===
+    const uploadTabs = document.querySelectorAll('.upload-tab[data-upload-tab]');
+    const uploadPanels = document.querySelectorAll('.upload-tab-panel[data-upload-panel]');
+    uploadTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            uploadTabs.forEach(t => t.classList.remove('active'));
+            uploadPanels.forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const panelName = tab.getAttribute('data-upload-tab');
+            const panel = document.querySelector(`.upload-tab-panel[data-upload-panel="${panelName}"]`);
+            if (panel) panel.classList.add('active');
+
+            // When switching to schedule tab, refresh the schedule list
+            if (panelName === 'schedule') {
+                refreshScheduleList(state, null);
+                // Also populate the default menu selector for schedule tab
+                const schedMenuSelect = document.getElementById('sched-default-menu');
+                schedMenuSelect.innerHTML = '<option value="-1">不設定預設</option>';
+                if (state.project && state.project.richMenus) {
+                    state.project.richMenus.forEach((rm, index) => {
+                        const name = rm.metadata?.name || rm.alias || `Rich Menu ${index + 1}`;
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.textContent = name;
+                        schedMenuSelect.appendChild(option);
+                    });
+                }
+            }
+        });
+    });
+
+    // === Schedule Tab: Target toggle ===
+    const schedTargetRadios = document.querySelectorAll('input[name="sched-target"]');
+    const schedUsersGroup = document.getElementById('sched-users-group');
+    schedTargetRadios.forEach(r => {
+        r.addEventListener('change', () => {
+            schedUsersGroup.style.display =
+                (document.querySelector('input[name="sched-target"]:checked').value === 'users') ? '' : 'none';
+        });
+    });
+
+    // === Schedule Tab: Repeat type toggle ===
+    const schedRepeatRadios = document.querySelectorAll('input[name="sched-repeat"]');
+    const schedWeekdayGroup = document.getElementById('sched-weekday-group');
+    const schedDayGroup = document.getElementById('sched-day-group');
+    schedRepeatRadios.forEach(r => {
+        r.addEventListener('change', () => {
+            const val = document.querySelector('input[name="sched-repeat"]:checked').value;
+            schedWeekdayGroup.style.display = (val === 'weekly') ? '' : 'none';
+            schedDayGroup.style.display = (val === 'monthly') ? '' : 'none';
+        });
+    });
+
+    // Set default date values to today
+    const today = new Date().toISOString().split('T')[0];
+    const schedStartDate = document.getElementById('sched-start-date');
+    const schedEndDate = document.getElementById('sched-end-date');
+    if (schedStartDate) schedStartDate.value = today;
+    if (schedEndDate) {
+        const nextMonth = new Date();
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        schedEndDate.value = nextMonth.toISOString().split('T')[0];
+    }
+
+    // === Schedule Form: Submit (Create or Update) ===
+    let _editingScheduleId = null;  // null = creating new, number = editing existing
+
+    document.getElementById('sched-submit-btn').addEventListener('click', async () => {
+        const errorEl = document.getElementById('sched-error');
+        errorEl.textContent = '';
+
+        const startDate = document.getElementById('sched-start-date').value;
+        const endDate = document.getElementById('sched-end-date').value;
+        const runTime = document.getElementById('sched-time').value;
+        const repeatType = document.querySelector('input[name="sched-repeat"]:checked').value;
+        const scope = document.querySelector('input[name="sched-scope"]:checked').value;
+        const publishTarget = document.querySelector('input[name="sched-target"]:checked').value;
+        const defaultMenuIndex = parseInt(document.getElementById('sched-default-menu').value);
+
+        if (!startDate || !endDate) {
+            errorEl.textContent = '請設定開始和結束日期';
+            return;
+        }
+        if (startDate > endDate) {
+            errorEl.textContent = '開始日期不能晚於結束日期';
+            return;
+        }
+
+        const data = {
+            scope,
+            current_tab_index: state.currentTabIndex || 0,
+            publish_target: publishTarget,
+            default_menu_index: defaultMenuIndex,
+            start_date: startDate,
+            end_date: endDate,
+            run_time: runTime,
+            repeat_type: repeatType
+        };
+
+        if (publishTarget === 'users') {
+            const userIdsText = document.getElementById('sched-user-ids').value || '';
+            data.user_ids = userIdsText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        }
+        if (repeatType === 'weekly') {
+            data.repeat_weekday = parseInt(document.getElementById('sched-weekday').value);
+        }
+        if (repeatType === 'monthly') {
+            data.repeat_day = parseInt(document.getElementById('sched-day').value);
+        }
+
+        const submitBtn = document.getElementById('sched-submit-btn');
+        submitBtn.disabled = true;
+        const isEditing = _editingScheduleId !== null;
+        submitBtn.textContent = isEditing ? '更新中...' : '建立中...';
+
+        try {
+            let result;
+            if (isEditing) {
+                result = await updateScheduledJob(_editingScheduleId, data);
+            } else {
+                result = await createScheduledJob(state.project.id, data);
+            }
+            if (result.ok) {
+                errorEl.textContent = '';
+                if (!isEditing && result.data && result.data.id) {
+                    // 新建成功，切換到編輯該排程
+                    _editingScheduleId = result.data.id;
+                }
+                refreshScheduleList(state, _editingScheduleId);
+                _updateSubmitButtonState();
+                showToast(isEditing ? '✅ 排程已更新' : '✅ 排程已建立', 'success');
+            } else {
+                errorEl.textContent = result.message || (isEditing ? '更新排程失敗' : '建立排程失敗');
+            }
+        } catch (e) {
+            errorEl.textContent = e.message || (isEditing ? '更新排程失敗' : '建立排程失敗');
+        } finally {
+            submitBtn.disabled = false;
+            _updateSubmitButtonState();
+        }
+    });
+
+    // === Schedule Form: Delete ===
+    document.getElementById('sched-delete-btn').addEventListener('click', async () => {
+        if (_editingScheduleId === null) return;
+        if (!confirm('確定要刪除此排程？')) return;
+        try {
+            await deleteScheduledJob(_editingScheduleId);
+            _editingScheduleId = null;
+            resetScheduleForm(state);
+            refreshScheduleList(state, null);
+        } catch (e) {
+            alert('刪除排程失敗');
+        }
+    });
+
+    function _updateSubmitButtonState() {
+        const submitBtn = document.getElementById('sched-submit-btn');
+        const deleteBtn = document.getElementById('sched-delete-btn');
+        if (_editingScheduleId !== null) {
+            submitBtn.textContent = '更新排程';
+            deleteBtn.style.display = '';
+        } else {
+            submitBtn.textContent = '新增排程';
+            deleteBtn.style.display = 'none';
+        }
+    }
+
+    // Expose select handler for card clicks
+    window._selectScheduleCard = function (jobId) {
+        if (jobId === null) {
+            _editingScheduleId = null;
+            resetScheduleForm(state);
+        } else {
+            _editingScheduleId = jobId;
+            // loadScheduleIntoForm fetched from the card data
+        }
+        _updateSubmitButtonState();
+        refreshScheduleList(state, _editingScheduleId);
+    };
+
+    // Close schedule tab button
+    document.getElementById('close-schedule-tab').addEventListener('click', () => setModalVisible(false));
+
     const backBtn = document.getElementById('back-to-projects');
     backBtn.addEventListener('click', () => {
         leaveProject();  // 離開 Socket.IO 房間
@@ -3751,4 +4043,202 @@ async function resizeImageDataUrl(dataUrl, targetW, targetH, mime = 'image/jpeg'
         img.onerror = reject;
         img.src = dataUrl;
     });
+}
+
+// === Toast Notification ===
+function showToast(message, type = 'success') {
+    // Remove existing toast
+    const existing = document.querySelector('.sched-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `sched-toast sched-toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Trigger animation
+    requestAnimationFrame(() => toast.classList.add('show'));
+
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 2500);
+}
+
+// === Schedule List Management ===
+
+const REPEAT_TYPE_LABELS = {
+    daily: '每天',
+    weekly: '每週',
+    monthly: '每月',
+    once: '僅一次'
+};
+
+const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+
+async function refreshScheduleList(state, selectedId) {
+    const listEl = document.getElementById('schedule-list');
+    if (!listEl || !state.project) return;
+
+    try {
+        const result = await listScheduledJobs(state.project.id);
+        const jobs = (result.ok ? result.data : null) || [];
+
+        listEl.innerHTML = '';
+
+        // Render existing schedule cards
+        jobs.forEach(job => {
+            const card = renderScheduleCard(job, selectedId);
+            card.addEventListener('click', () => {
+                if (window._selectScheduleCard) {
+                    loadScheduleIntoForm(job, state);
+                    window._selectScheduleCard(job.id);
+                }
+            });
+            listEl.appendChild(card);
+        });
+
+        // "＋ 新增排程" card
+        const addCard = document.createElement('div');
+        addCard.className = `schedule-card schedule-card-add${selectedId === null ? ' selected' : ''}`;
+        addCard.innerHTML = '<span class="schedule-add-icon">＋</span><span>新增排程</span>';
+        addCard.addEventListener('click', () => {
+            if (window._selectScheduleCard) {
+                window._selectScheduleCard(null);
+            }
+        });
+        listEl.appendChild(addCard);
+
+    } catch (e) {
+        listEl.innerHTML = '<p class="schedule-empty">載入失敗</p>';
+    }
+}
+
+function renderScheduleCard(job, selectedId) {
+    const card = document.createElement('div');
+    const isSelected = job.id === selectedId;
+    card.className = `schedule-card${job.enabled ? '' : ' disabled'}${isSelected ? ' selected' : ''}`;
+
+    const repeatLabel = REPEAT_TYPE_LABELS[job.repeat_type] || job.repeat_type;
+    let freqDetail = '';
+    if (job.repeat_type === 'weekly' && job.repeat_weekday !== null) {
+        freqDetail = `星期${WEEKDAY_LABELS[job.repeat_weekday] || job.repeat_weekday}`;
+    } else if (job.repeat_type === 'monthly' && job.repeat_day !== null) {
+        freqDetail = `${job.repeat_day}號`;
+    }
+
+    let statusIcon = '';
+    if (job.last_run_at) {
+        statusIcon = job.last_run_status === 'success' ? ' ✅' : ' ❌';
+    }
+
+    card.innerHTML = `
+        <div class="schedule-card-title">${repeatLabel} ${freqDetail} ${job.run_time}${statusIcon}</div>
+        <div class="schedule-card-sub">${job.start_date} ~ ${job.end_date}</div>
+    `;
+
+    return card;
+}
+
+function loadScheduleIntoForm(job, state) {
+    // Scope
+    const scopeRadio = document.querySelector(`input[name="sched-scope"][value="${job.scope || 'single'}"]`);
+    if (scopeRadio) scopeRadio.checked = true;
+
+    // Publish target
+    const targetRadio = document.querySelector(`input[name="sched-target"][value="${job.publish_target || 'all'}"]`);
+    if (targetRadio) targetRadio.checked = true;
+
+    // Users
+    const usersGroup = document.getElementById('sched-users-group');
+    const userIdsEl = document.getElementById('sched-user-ids');
+    if (job.publish_target === 'users') {
+        usersGroup.style.display = '';
+        const ids = job.user_ids;
+        userIdsEl.value = Array.isArray(ids) ? ids.join('\n') : (ids || '');
+    } else {
+        usersGroup.style.display = 'none';
+        userIdsEl.value = '';
+    }
+
+    // Default menu
+    const schedMenuSelect = document.getElementById('sched-default-menu');
+    // Populate options first
+    schedMenuSelect.innerHTML = '<option value="-1">不設定預設</option>';
+    if (state.project && state.project.richMenus) {
+        state.project.richMenus.forEach((rm, index) => {
+            const name = rm.metadata?.name || rm.alias || `Rich Menu ${index + 1}`;
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = name;
+            schedMenuSelect.appendChild(option);
+        });
+    }
+    schedMenuSelect.value = String(job.default_menu_index ?? -1);
+
+    // Repeat type
+    const repeatRadio = document.querySelector(`input[name="sched-repeat"][value="${job.repeat_type || 'daily'}"]`);
+    if (repeatRadio) repeatRadio.checked = true;
+
+    // Show/hide weekday/day groups
+    const weekdayGroup = document.getElementById('sched-weekday-group');
+    const dayGroup = document.getElementById('sched-day-group');
+    weekdayGroup.style.display = (job.repeat_type === 'weekly') ? '' : 'none';
+    dayGroup.style.display = (job.repeat_type === 'monthly') ? '' : 'none';
+
+    if (job.repeat_type === 'weekly' && job.repeat_weekday !== null) {
+        document.getElementById('sched-weekday').value = String(job.repeat_weekday);
+    }
+    if (job.repeat_type === 'monthly' && job.repeat_day !== null) {
+        document.getElementById('sched-day').value = String(job.repeat_day);
+    }
+
+    // Time & dates
+    document.getElementById('sched-time').value = job.run_time || '00:00';
+    document.getElementById('sched-start-date').value = job.start_date || '';
+    document.getElementById('sched-end-date').value = job.end_date || '';
+
+    // Clear error
+    document.getElementById('sched-error').textContent = '';
+}
+
+function resetScheduleForm(state) {
+    // Reset to defaults
+    const scopeRadio = document.querySelector('input[name="sched-scope"][value="single"]');
+    if (scopeRadio) scopeRadio.checked = true;
+
+    const targetRadio = document.querySelector('input[name="sched-target"][value="all"]');
+    if (targetRadio) targetRadio.checked = true;
+
+    document.getElementById('sched-users-group').style.display = 'none';
+    document.getElementById('sched-user-ids').value = '';
+
+    const schedMenuSelect = document.getElementById('sched-default-menu');
+    schedMenuSelect.innerHTML = '<option value="-1">不設定預設</option>';
+    if (state.project && state.project.richMenus) {
+        state.project.richMenus.forEach((rm, index) => {
+            const name = rm.metadata?.name || rm.alias || `Rich Menu ${index + 1}`;
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = name;
+            schedMenuSelect.appendChild(option);
+        });
+    }
+    schedMenuSelect.value = '-1';
+
+    const repeatRadio = document.querySelector('input[name="sched-repeat"][value="daily"]');
+    if (repeatRadio) repeatRadio.checked = true;
+
+    document.getElementById('sched-weekday-group').style.display = 'none';
+    document.getElementById('sched-day-group').style.display = 'none';
+
+    document.getElementById('sched-time').value = '00:00';
+
+    const today = new Date().toISOString().split('T')[0];
+    const nextMonth = new Date();
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    document.getElementById('sched-start-date').value = today;
+    document.getElementById('sched-end-date').value = nextMonth.toISOString().split('T')[0];
+
+    document.getElementById('sched-error').textContent = '';
 } 

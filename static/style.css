@@ -1244,3 +1244,208 @@ code {
         margin: 0.5rem;
     }
 }
+
+/* === Upload Modal Tabs === */
+.upload-tabs-container {
+    padding: 0 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fafafa;
+    display: flex;
+    gap: 0;
+}
+
+.upload-tab {
+    padding: 0.75rem 1.25rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #6b7280;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.upload-tab:hover {
+    color: #374151;
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.upload-tab.active {
+    color: var(--primary-color);
+    font-weight: 600;
+    border-bottom-color: var(--primary-color);
+}
+
+.upload-tab-panel {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+.upload-tab-panel.active {
+    display: flex;
+}
+
+/* === Schedule Form === */
+.schedule-form-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.sched-repeat-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.form-row {
+    display: flex;
+    gap: 1rem;
+}
+
+/* === Schedule List & Cards === */
+.schedule-card-list {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db #f3f4f6;
+}
+
+.schedule-card-list::-webkit-scrollbar {
+    height: 6px;
+}
+
+.schedule-card-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.schedule-empty {
+    color: #9ca3af;
+    text-align: center;
+    padding: 1rem 0;
+    font-size: 0.9rem;
+    width: 100%;
+}
+
+.schedule-card {
+    background: #fff;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.6rem 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 140px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.schedule-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.schedule-card.selected {
+    border-color: #02a568;
+    box-shadow: 0 0 0 1px #02a568;
+}
+
+.schedule-card.disabled {
+    opacity: 0.5;
+}
+
+.schedule-card-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #111;
+    white-space: nowrap;
+}
+
+.schedule-card-sub {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.15rem;
+    white-space: nowrap;
+}
+
+.schedule-card-add {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    border-style: dashed;
+    color: #6b7280;
+    min-width: 100px;
+}
+
+.schedule-card-add:hover {
+    border-color: #02a568;
+    color: #02a568;
+}
+
+.schedule-card-add.selected {
+    border-color: #02a568;
+    color: #02a568;
+    box-shadow: 0 0 0 1px #02a568;
+}
+
+.schedule-add-icon {
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+/* Schedule form actions row */
+.sched-form-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* Toast notification */
+.sched-toast {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100%);
+    padding: 0.65rem 1.5rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #fff;
+    z-index: 99999;
+    opacity: 0;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+}
+
+.sched-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.sched-toast-success {
+    background: #059669;
+}
+
+.sched-toast-error {
+    background: #dc2626;
+}
+
+/* Form type inputs for schedule */
+.form-group input[type="date"],
+.form-group input[type="time"] {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}

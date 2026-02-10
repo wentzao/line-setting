@@ -295,6 +295,10 @@ def handle_richmenu_unlock(data):
 # === 初始化資料庫（在模組載入時執行）===
 db.init_db()
 
+# === 初始化排程器 ===
+import scheduler as sched_module
+sched_module.init_scheduler(app)
+
 # === 啟動應用 ===
 
 if __name__ == '__main__':

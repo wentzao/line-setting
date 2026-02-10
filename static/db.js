@@ -602,3 +602,55 @@ window.deleteFlexMessage = async function deleteFlexMessage(id) {
     }
 };
 
+// === Scheduled Jobs API ===
+
+window.listScheduledJobs = async function listScheduledJobs(projectId) {
+    try {
+        const response = await fetch(`${API_BASE}/projects/${projectId}/schedules`);
+        return await response.json();
+    } catch (e) {
+        console.error('listScheduledJobs error:', e);
+        return { ok: false, message: e.message };
+    }
+};
+
+window.createScheduledJob = async function createScheduledJob(projectId, data) {
+    try {
+        const response = await fetch(`${API_BASE}/projects/${projectId}/schedules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await response.json();
+    } catch (e) {
+        console.error('createScheduledJob error:', e);
+        return { ok: false, message: e.message };
+    }
+};
+
+window.updateScheduledJob = async function updateScheduledJob(jobId, data) {
+    try {
+        const response = await fetch(`${API_BASE}/schedules/${jobId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await response.json();
+    } catch (e) {
+        console.error('updateScheduledJob error:', e);
+        return { ok: false, message: e.message };
+    }
+};
+
+window.deleteScheduledJob = async function deleteScheduledJob(jobId) {
+    try {
+        const response = await fetch(`${API_BASE}/schedules/${jobId}`, {
+            method: 'DELETE'
+        });
+        return await response.json();
+    } catch (e) {
+        console.error('deleteScheduledJob error:', e);
+        return { ok: false, message: e.message };
+    }
+};
+
