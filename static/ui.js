@@ -1901,7 +1901,25 @@ async function renderEditor(projectId) {
                 const result = await createScheduledJob(state.project.id, apiPayload);
                 if (!result.ok) throw new Error(result.message);
                 showScheduleToast('排程建立成功', 'success');
-                resetScheduleForm();
+
+                // Select newly created job
+                const newJobId = result.data.id;
+                const listResult = await listScheduledJobs(state.project.id);
+                if (listResult.ok && listResult.data) {
+                    const newJob = listResult.data.find(j => j.id === newJobId);
+                    if (newJob) {
+                        currentEditingScheduleId = newJobId;
+                        isCreatingSchedule = false;
+                        setScheduleFormData(newJob);
+                        originalScheduleData = getScheduleFormData();
+                        updateScheduleFormState();
+                        refreshScheduleList(state);
+                    } else {
+                        resetScheduleForm();
+                    }
+                } else {
+                    resetScheduleForm();
+                }
             }
         } catch (e) {
             errorEl.textContent = e.message || '操作失敗';

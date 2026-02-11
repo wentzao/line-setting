@@ -541,6 +541,12 @@ def update_schedule(job_id):
     """更新排程"""
     try:
         data = request.get_json()
+        
+        # resetting run status to allow re-run if time changed
+        data['last_run_at'] = None
+        data['last_run_status'] = None
+        data['last_run_message'] = None
+        
         db.update_scheduled_job(job_id, **data)
         return jsonify({'ok': True})
     except Exception as e:
