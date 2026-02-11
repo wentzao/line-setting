@@ -206,6 +206,17 @@ main {
     background-color: #b91c1c;
 }
 
+.btn.disabled,
+.btn:disabled {
+    background-color: #9ca3af;
+    color: #f3f4f6;
+    cursor: not-allowed;
+    pointer-events: none;
+    box-shadow: none;
+    transform: none;
+    opacity: 0.7;
+}
+
 /* Utility */
 hr {
     border: none;
@@ -1309,12 +1320,24 @@ code {
 }
 
 /* === Schedule List & Cards === */
-.schedule-list {
+.schedule-cards-row {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    max-height: 300px;
-    overflow-y: auto;
+    gap: 1rem;
+    overflow-x: auto;
+    padding: 0.5rem 0.25rem 1rem 0.25rem;
+    /* Bottom padding for shadow */
+    scrollbar-width: thin;
+    min-height: 160px;
+    align-items: stretch;
+}
+
+.schedule-cards-row::-webkit-scrollbar {
+    height: 8px;
+}
+
+.schedule-cards-row::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 4px;
 }
 
 .schedule-empty {
@@ -1322,24 +1345,73 @@ code {
     text-align: center;
     padding: 2rem 0;
     font-size: 0.9rem;
+    width: 100%;
 }
 
 .schedule-card {
+    min-width: 260px;
+    max-width: 260px;
     background: #fff;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    padding: 0.75rem 1rem;
+    padding: 1rem;
+    cursor: pointer;
     transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    flex-shrink: 0;
 }
 
 .schedule-card:hover {
     border-color: #d1d5db;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.schedule-card.selected {
+    border: 2px solid #02a568;
+    box-shadow: 0 0 0 3px rgba(2, 165, 104, 0.1);
 }
 
 .schedule-card.disabled {
-    opacity: 0.55;
+    opacity: 0.6;
+    background: #fdfdfd;
+}
+
+/* Add New Card */
+.schedule-card.add-new-card {
+    min-width: 140px;
+    max-width: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed #d1d5db;
     background: #f9fafb;
+    gap: 0.5rem;
+    color: #6b7280;
+}
+
+.schedule-card.add-new-card:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: #f0fdf9;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(2, 165, 104, 0.1);
+}
+
+.schedule-card.add-new-card.selected {
+    border: 2px solid #02a568;
+    background: #f0fdf9;
+    color: var(--primary-color);
+}
+
+.schedule-card.add-new-card .add-icon {
+    font-size: 2rem;
+    line-height: 1;
+    font-weight: 300;
 }
 
 .schedule-card-header {
@@ -1375,18 +1447,19 @@ code {
     margin-bottom: 0.35rem;
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .schedule-status.success {
     background: #ecfdf5;
     color: #059669;
-    margin-top: 0;
 }
 
 .schedule-status.error {
     background: #fef2f2;
     color: #dc2626;
-    margin-top: 0;
 }
 
 .schedule-card-actions {
@@ -1415,6 +1488,34 @@ code {
     cursor: pointer;
 }
 
+/* Toast Notification */
+.schedule-toast {
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background-color: #333;
+    color: #fff;
+    padding: 0.5rem 1.5rem;
+    border-radius: 999px;
+    /* Pill shape */
+    font-size: 0.9rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.schedule-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.schedule-toast.success {
+    background-color: var(--primary-color);
+}
+
 /* Form type inputs for schedule */
 .form-group input[type="date"],
 .form-group input[type="time"] {
@@ -1424,4 +1525,20 @@ code {
     border-radius: 4px;
     font-size: 0.95rem;
     box-sizing: border-box;
+}
+
+/* Schedule Placeholder */
+.schedule-placeholder {
+    padding: 3rem;
+    text-align: center;
+    color: #6b7280;
+    font-size: 1rem;
+    background: #f9fafb;
+    border: 1px dashed #e5e7eb;
+    border-radius: 8px;
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
 }

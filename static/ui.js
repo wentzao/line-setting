@@ -1513,9 +1513,28 @@ async function renderEditor(projectId) {
                     </div>
                     
                     <!-- 排程上傳 Tab -->
+                    <!-- 排程上傳 Tab -->
                     <div class="upload-tab-panel" data-upload-panel="schedule">
                         <div class="modal-body">
-                            <div class="schedule-form-section">
+                            <!-- Toast Notification -->
+                            <div id="schedule-toast" class="schedule-toast"></div>
+
+                            <!-- Cards Section -->
+                            <h4 style="margin-top:0;">排程列表</h4>
+                            <div id="schedule-list" class="schedule-cards-row">
+                                <!-- Cards injected by JS -->
+                            </div>
+                            
+                            <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e5e7eb;" />
+
+                            <!-- Placeholder -->
+                            <div id="schedule-placeholder" class="schedule-placeholder">
+                                <p>請選擇上方排程以編輯，或點擊「新增排程」開始設定。</p>
+                            </div>
+
+                            <!-- Form Section -->
+                            <div id="schedule-editor" class="schedule-form-section" style="display:none;">
+                                <h4 id="schedule-form-title">新增排程</h4>
                                 <div class="form-group">
                                     <label>上傳範圍</label>
                                     <div>
@@ -1590,14 +1609,9 @@ async function renderEditor(projectId) {
                                     </div>
                                 </div>
                                 <div id="sched-error" class="error"></div>
-                                <button id="create-schedule-btn" class="btn" style="width:100%;">新增排程</button>
-                            </div>
-                            
-                            <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e5e7eb;" />
-                            
-                            <h4>現有排程</h4>
-                            <div id="schedule-list" class="schedule-list">
-                                <p class="schedule-empty">尚無排程</p>
+                                <div class="schedule-form-actions">
+                                    <button id="save-schedule-btn" class="btn" style="width:100%;">新增排程</button>
+                                </div>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -1835,67 +1849,66 @@ async function renderEditor(projectId) {
         schedEndDate.value = nextMonth.toISOString().split('T')[0];
     }
 
-    // === Create Schedule ===
-    document.getElementById('create-schedule-btn').addEventListener('click', async () => {
+    // === Schedule Form Interactions ===
+    const schedInputs = document.querySelectorAll(
+        'input[name^="sched-"], input[id^="sched-"], select[id^="sched-"], textarea[id^="sched-"]'
+    );
+    schedInputs.forEach(input => {
+        input.addEventListener('input', checkScheduleDirty);
+        input.addEventListener('change', checkScheduleDirty);
+    });
+
+    // === Save Schedule (Create or Update) ===
+    document.getElementById('save-schedule-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('save-schedule-btn');
+        if (btn.disabled) return;
+
         const errorEl = document.getElementById('sched-error');
         errorEl.textContent = '';
-
-        const startDate = document.getElementById('sched-start-date').value;
-        const endDate = document.getElementById('sched-end-date').value;
-        const runTime = document.getElementById('sched-time').value;
-        const repeatType = document.querySelector('input[name="sched-repeat"]:checked').value;
-        const scope = document.querySelector('input[name="sched-scope"]:checked').value;
-        const publishTarget = document.querySelector('input[name="sched-target"]:checked').value;
-        const defaultMenuIndex = parseInt(document.getElementById('sched-default-menu').value);
-
-        if (!startDate || !endDate) {
-            errorEl.textContent = '請設定開始和結束日期';
-            return;
-        }
-        if (startDate > endDate && repeatType !== 'once') {
-            errorEl.textContent = '開始日期不能晚於結束日期';
-            return;
-        }
-
-        const data = {
-            scope,
-            current_tab_index: state.currentTabIndex || 0,
-            publish_target: publishTarget,
-            default_menu_index: defaultMenuIndex,
-            start_date: startDate,
-            end_date: endDate,
-            run_time: runTime,
-            repeat_type: repeatType
-        };
-
-        if (publishTarget === 'users') {
-            const userIdsText = document.getElementById('sched-user-ids').value || '';
-            data.user_ids = userIdsText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-        }
-        if (repeatType === 'weekly') {
-            data.repeat_weekday = parseInt(document.getElementById('sched-weekday').value);
-        }
-        if (repeatType === 'monthly') {
-            data.repeat_day = parseInt(document.getElementById('sched-day').value);
-        }
-
-        const createBtn = document.getElementById('create-schedule-btn');
-        createBtn.disabled = true;
-        createBtn.textContent = '建立中...';
+        btn.disabled = true;
 
         try {
-            const result = await createScheduledJob(state.project.id, data);
-            if (result.ok) {
-                errorEl.textContent = '';
+            const data = getScheduleFormData();
+
+            if (!data.startDate || !data.endDate) throw new Error('請選擇開始與結束日期');
+            if (data.startDate > data.endDate) throw new Error('結束日期不能早於開始日期');
+            if (data.target === 'users' && !data.userIds.trim()) throw new Error('請輸入使用者 ID');
+
+            const apiPayload = {
+                scope: data.scope,
+                current_tab_index: state.currentTabIndex,
+                publish_target: data.target,
+                user_ids: data.target === 'users' ? data.userIds.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [],
+                default_menu_index: parseInt(data.defaultMenu),
+                start_date: data.startDate,
+                end_date: data.endDate,
+                run_time: data.time,
+                repeat_type: data.repeat,
+                repeat_weekday: (data.repeat === 'weekly') ? parseInt(data.weekday) : null,
+                repeat_day: (data.repeat === 'monthly') ? parseInt(data.day) : null
+            };
+
+            if (currentEditingScheduleId) {
+                // Update
+                const result = await updateScheduledJob(currentEditingScheduleId, apiPayload);
+                if (!result.ok) throw new Error(result.message);
+                showScheduleToast('排程更新成功', 'success');
+                originalScheduleData = getScheduleFormData();
+                checkScheduleDirty();
                 refreshScheduleList(state);
             } else {
-                errorEl.textContent = result.message || '建立排程失敗';
+                // Create
+                const result = await createScheduledJob(state.project.id, apiPayload);
+                if (!result.ok) throw new Error(result.message);
+                showScheduleToast('排程建立成功', 'success');
+                resetScheduleForm();
             }
         } catch (e) {
-            errorEl.textContent = e.message || '建立排程失敗';
-        } finally {
-            createBtn.disabled = false;
-            createBtn.textContent = '新增排程';
+            errorEl.textContent = e.message || '操作失敗';
+            // Re-enable button if dirty or error
+            if (!currentEditingScheduleId || (currentEditingScheduleId && originalScheduleData && JSON.stringify(getScheduleFormData()) !== JSON.stringify(originalScheduleData))) {
+                btn.disabled = false;
+            }
         }
     });
 
@@ -3999,9 +4012,162 @@ const REPEAT_TYPE_LABELS = {
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
 
+let currentEditingScheduleId = null;
+let originalScheduleData = null;
+let isCreatingSchedule = false;
+
+// Helper: Get form data
+function getScheduleFormData() {
+    const scope = document.querySelector('input[name="sched-scope"]:checked')?.value || 'single';
+    const target = document.querySelector('input[name="sched-target"]:checked')?.value || 'all';
+    const userIds = document.getElementById('sched-user-ids').value;
+    const defaultMenu = document.getElementById('sched-default-menu').value;
+    const repeat = document.querySelector('input[name="sched-repeat"]:checked')?.value || 'daily';
+    const weekday = document.getElementById('sched-weekday').value;
+    const day = document.getElementById('sched-day').value;
+    const time = document.getElementById('sched-time').value;
+    const startDate = document.getElementById('sched-start-date').value;
+    const endDate = document.getElementById('sched-end-date').value;
+
+    return {
+        scope, target, userIds, defaultMenu, repeat, weekday, day, time, startDate, endDate
+    };
+}
+
+// Helper: Set form data
+function setScheduleFormData(job) {
+    const scopeRadio = document.querySelector(`input[name="sched-scope"][value="${job.scope}"]`);
+    if (scopeRadio) scopeRadio.checked = true;
+
+    const targetRadio = document.querySelector(`input[name="sched-target"][value="${job.publish_target}"]`);
+    if (targetRadio) {
+        targetRadio.checked = true;
+        targetRadio.dispatchEvent(new Event('change'));
+    }
+
+    if (job.user_ids) {
+        document.getElementById('sched-user-ids').value = job.user_ids.join('\n');
+    }
+
+    document.getElementById('sched-default-menu').value = job.default_menu_index;
+
+    const repeatRadio = document.querySelector(`input[name="sched-repeat"][value="${job.repeat_type}"]`);
+    if (repeatRadio) {
+        repeatRadio.checked = true;
+        repeatRadio.dispatchEvent(new Event('change'));
+    }
+
+    if (job.repeat_weekday !== null) document.getElementById('sched-weekday').value = job.repeat_weekday;
+    if (job.repeat_day !== null) document.getElementById('sched-day').value = job.repeat_day;
+
+    document.getElementById('sched-time').value = job.run_time;
+    document.getElementById('sched-start-date').value = job.start_date;
+    document.getElementById('sched-end-date').value = job.end_date;
+}
+
+// Helper: Reset form (Enter Create Mode)
+function resetScheduleForm() {
+    currentEditingScheduleId = null;
+    originalScheduleData = null;
+    isCreatingSchedule = true;
+
+    document.querySelector('input[name="sched-scope"][value="single"]').checked = true;
+    const targetRadio = document.querySelector('input[name="sched-target"][value="all"]');
+    targetRadio.checked = true;
+    targetRadio.dispatchEvent(new Event('change'));
+
+    document.getElementById('sched-user-ids').value = '';
+    document.getElementById('sched-default-menu').value = '-1';
+
+    const repeatRadio = document.querySelector('input[name="sched-repeat"][value="daily"]');
+    repeatRadio.checked = true;
+    repeatRadio.dispatchEvent(new Event('change'));
+
+    document.getElementById('sched-weekday').value = '0';
+    document.getElementById('sched-day').value = '1';
+    document.getElementById('sched-time').value = '00:00';
+
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('sched-start-date').value = today;
+
+    const nextMonth = new Date();
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    document.getElementById('sched-end-date').value = nextMonth.toISOString().split('T')[0];
+
+    updateScheduleFormState();
+    refreshScheduleList(window.editorState); // Using window.editorState as fallback or passed state
+}
+
+// Helper: Reset to Placeholder (No Selection)
+function resetToPlaceholder() {
+    currentEditingScheduleId = null;
+    originalScheduleData = null;
+    isCreatingSchedule = false;
+    refreshScheduleList(window.editorState);
+}
+
+// Helper: Update Form State
+function updateScheduleFormState() {
+    const titleEl = document.getElementById('schedule-form-title');
+    const btnEl = document.getElementById('save-schedule-btn');
+
+    if (currentEditingScheduleId) {
+        titleEl.textContent = '編輯排程';
+        btnEl.textContent = '更新排程';
+        checkScheduleDirty();
+    } else {
+        titleEl.textContent = '新增排程';
+        btnEl.textContent = '新增排程';
+        // Force enable for new
+        btnEl.classList.remove('disabled');
+        btnEl.disabled = false;
+    }
+}
+
+// Helper: Check Dirty
+function checkScheduleDirty() {
+    if (!currentEditingScheduleId || !originalScheduleData) return;
+
+    const currentData = getScheduleFormData();
+    const isDirty = JSON.stringify(currentData) !== JSON.stringify(originalScheduleData);
+
+    const btnEl = document.getElementById('save-schedule-btn');
+    if (isDirty) {
+        btnEl.classList.remove('disabled');
+        btnEl.disabled = false;
+    } else {
+        btnEl.classList.add('disabled');
+        btnEl.disabled = true;
+    }
+}
+
+// Helper: Toast
+function showScheduleToast(message, type = 'success') {
+    const toast = document.getElementById('schedule-toast');
+    if (toast) {
+        toast.textContent = message;
+        toast.className = `schedule-toast show ${type}`;
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+}
+
 async function refreshScheduleList(state) {
     const listEl = document.getElementById('schedule-list');
+    const boxEditor = document.getElementById('schedule-editor');
+    const boxPlaceholder = document.getElementById('schedule-placeholder');
+
     if (!listEl || !state.project) return;
+
+    // Visibility Logic
+    if (!currentEditingScheduleId && !isCreatingSchedule) {
+        if (boxEditor) boxEditor.style.display = 'none';
+        if (boxPlaceholder) boxPlaceholder.style.display = 'flex';
+    } else {
+        if (boxEditor) boxEditor.style.display = 'block';
+        if (boxPlaceholder) boxPlaceholder.style.display = 'none';
+    }
 
     try {
         const result = await listScheduledJobs(state.project.id);
@@ -4011,23 +4177,31 @@ async function refreshScheduleList(state) {
         }
 
         const jobs = result.data || [];
-        if (jobs.length === 0) {
-            listEl.innerHTML = '<p class="schedule-empty">尚無排程</p>';
-            return;
-        }
-
         listEl.innerHTML = '';
+
         jobs.forEach(job => {
             listEl.appendChild(renderScheduleCard(job, state));
         });
+
+        // Add "Add New" Card at the END
+        const addCard = document.createElement('div');
+        addCard.className = `schedule-card add-new-card ${isCreatingSchedule ? 'selected' : ''}`;
+        addCard.innerHTML = '<div class="add-icon">+</div><div>新增排程</div>';
+        addCard.addEventListener('click', () => {
+            resetScheduleForm();
+        });
+        listEl.appendChild(addCard);
+
     } catch (e) {
+        console.error(e);
         listEl.innerHTML = '<p class="schedule-empty">載入失敗</p>';
     }
 }
 
 function renderScheduleCard(job, state) {
     const card = document.createElement('div');
-    card.className = `schedule-card${job.enabled ? '' : ' disabled'}`;
+    const isSelected = currentEditingScheduleId === job.id;
+    card.className = `schedule-card${job.enabled ? '' : ' disabled'}${isSelected ? ' selected' : ''}`;
 
     const repeatLabel = REPEAT_TYPE_LABELS[job.repeat_type] || job.repeat_type;
     let freqDetail = '';
@@ -4038,38 +4212,55 @@ function renderScheduleCard(job, state) {
     }
 
     const scopeLabel = job.scope === 'all' ? '全部' : '單一';
-    const targetLabel = job.publish_target === 'all' ? '所有人' : '特定使用者';
+    const targetLabel = job.publish_target === 'all' ? '所有人' : '特定';
 
     let statusHtml = '';
     if (job.last_run_at) {
         const statusClass = job.last_run_status === 'success' ? 'success' : 'error';
         const statusIcon = job.last_run_status === 'success' ? '✅' : '❌';
-        const runDate = job.last_run_at.substring(0, 16).replace('T', ' ');
-        statusHtml = `<div class="schedule-status ${statusClass}">${statusIcon} 上次: ${runDate} ${job.last_run_message || ''}</div>`;
+        const runDate = job.last_run_at.substring(5, 16).replace('T', ' '); // MM-DD HH:MM
+        statusHtml = `<div class="schedule-status ${statusClass}">${statusIcon} ${runDate} ${job.last_run_message || ''}</div>`;
     }
 
     card.innerHTML = `
         <div class="schedule-card-header">
-            <span class="schedule-card-date">📅 ${job.start_date} ~ ${job.end_date}</span>
+            <span class="schedule-card-date">📅 ${job.end_date} 止</span>
             <span class="schedule-card-freq">${repeatLabel}${freqDetail} ${job.run_time}</span>
         </div>
-        <div class="schedule-card-info">範圍: ${scopeLabel} | 目標: ${targetLabel}</div>
+        <div class="schedule-card-info">${scopeLabel} | ${targetLabel}</div>
         ${statusHtml}
         <div class="schedule-card-actions">
             <label class="schedule-toggle-label">
                 <input type="checkbox" class="schedule-toggle" ${job.enabled ? 'checked' : ''} />
-                <span>${job.enabled ? '啟用中' : '已停用'}</span>
+                <span>${job.enabled ? '啟用' : '停用'}</span>
             </label>
             <button class="btn small danger schedule-delete-btn">刪除</button>
         </div>
     `;
 
+    // Click to load settings
+    card.addEventListener('click', (e) => {
+        // Prevent if clicking actions
+        if (e.target.closest('.schedule-card-actions')) return;
+
+        currentEditingScheduleId = job.id;
+        isCreatingSchedule = false;
+        setScheduleFormData(job);
+        originalScheduleData = getScheduleFormData();
+        updateScheduleFormState();
+        refreshScheduleList(state); // Re-render to update selection
+    });
+
     // Toggle enable/disable
     const toggle = card.querySelector('.schedule-toggle');
-    toggle.addEventListener('change', async () => {
+    toggle.addEventListener('change', async (e) => {
+        e.stopPropagation(); // Prevent card click
         try {
             await updateScheduledJob(job.id, { enabled: toggle.checked ? 1 : 0 });
-            refreshScheduleList(state);
+            showScheduleToast(toggle.checked ? '排程已啟用' : '排程已停用', 'success');
+            // Update UI
+            if (!toggle.checked) card.classList.add('disabled');
+            else card.classList.remove('disabled');
         } catch (e) {
             alert('更新排程狀態失敗');
             toggle.checked = !toggle.checked;
@@ -4078,13 +4269,19 @@ function renderScheduleCard(job, state) {
 
     // Delete button
     const deleteBtn = card.querySelector('.schedule-delete-btn');
-    deleteBtn.addEventListener('click', async () => {
+    deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation(); // Prevent card click
         if (!confirm('確定要刪除此排程？')) return;
         try {
             await deleteScheduledJob(job.id);
-            refreshScheduleList(state);
+            showScheduleToast('排程已刪除', 'success');
+            if (currentEditingScheduleId === job.id) {
+                resetToPlaceholder();
+            } else {
+                refreshScheduleList(state);
+            }
         } catch (e) {
-            alert('刪除排程失敗');
+            alert('刪除失敗');
         }
     });
 
