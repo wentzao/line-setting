@@ -9,8 +9,14 @@ def check_ip_whitelist(f):
     """檢查 IP 白名單的裝飾器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 取得客戶端真實 IP（考慮 NGINX 反向代理）
-        client_ip = request.headers.get('X-Real-IP') or \
+        # 取得客戶端真實 IP
+        # 優先順序：Cloudflare > NGINX 反向代理 > 直連
+        # CF-Connecting-IP：Cloudflare 轉發的原始用戶 IP（最可信）
+        # X-Real-IP：NGINX 設定的真實 IP
+        # X-Forwarded-For：代理鏈，取第一個（最左邊）的 IP
+        # remote_addr：直連 IP（使用 Cloudflare 時為 CF 節點 IP，fallback 用）
+        client_ip = request.headers.get('CF-Connecting-IP') or \
+                   request.headers.get('X-Real-IP') or \
                    request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or \
                    request.remote_addr
         
