@@ -21,7 +21,8 @@ ALLOWED_IPS = [
     '114.33.21.210',   # 允許的 IP 2
     '127.0.0.1',       # localhost for testing
     '::1',             # IPv6 localhost
-    '192.168.50.1'
+    '192.168.50.1',
+    '125.228.120.214'
 ]
 
 # LINE Login API 端點（預留）
