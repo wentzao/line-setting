@@ -13,7 +13,7 @@ DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'database.db')
 # 圖片上傳設定
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB
+MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 
 # IP 白名單（只允許這些 IP 存取）
 ALLOWED_IPS = [

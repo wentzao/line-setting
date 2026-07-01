@@ -4,6 +4,8 @@ from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
 import json
+import uuid
+from datetime import datetime
 from PIL import Image
 from io import BytesIO
 import base64
@@ -668,6 +670,46 @@ def replace_broadcast_event_contacts(event_id):
         if not event:
             return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
         return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>/attachments', methods=['POST'])
+@apply_auth
+def upload_broadcast_event_attachment(event_id):
+    """上傳群發事件附件，回傳可寫入 message_plan 的附件 metadata"""
+    try:
+        event = db.get_broadcast_event(event_id)
+        if not event:
+            return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
+
+        if 'file' not in request.files:
+            return jsonify({'ok': False, 'message': '沒有上傳檔案'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'ok': False, 'message': '檔案名稱為空'}), 400
+
+        original_name = file.filename
+        safe_name = secure_filename(original_name) or 'attachment'
+        message_type = request.form.get('message_type', 'file')
+        message_index = request.form.get('message_index', type=int)
+        stored_name = f'broadcast_{event_id}_{uuid.uuid4().hex}_{safe_name}'
+        filepath = os.path.join(config.UPLOAD_FOLDER, stored_name)
+
+        file.save(filepath)
+        size = os.path.getsize(filepath)
+        attachment = {
+            'original_name': original_name,
+            'stored_name': stored_name,
+            'url': f'/api/uploads/{stored_name}',
+            'mime_type': file.mimetype or 'application/octet-stream',
+            'size': size,
+            'message_type': message_type,
+            'message_index': message_index,
+            'uploaded_at': datetime.utcnow().isoformat()
+        }
+
+        return jsonify({'ok': True, 'data': attachment})
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
 
