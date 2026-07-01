@@ -141,6 +141,65 @@ def init_db():
             FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
         )
     ''')
+
+    # broadcast_events 表（LINE Biz 後台手動群發續傳事件）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS broadcast_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            selected_filters TEXT,
+            message_plan TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    ''')
+
+    # broadcast_event_contacts 表（事件的目標聯絡人快照與進度）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS broadcast_event_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            contact_id TEXT NOT NULL,
+            display_name TEXT,
+            profile_name TEXT,
+            nickname TEXT,
+            tags TEXT,
+            position INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            last_actor TEXT,
+            last_sent_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES broadcast_events (id) ON DELETE CASCADE,
+            UNIQUE (event_id, contact_id)
+        )
+    ''')
+
+    # broadcast_event_logs 表（每次送出或失敗的細節）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS broadcast_event_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            contact_id TEXT,
+            message_index INTEGER,
+            message_type TEXT,
+            status TEXT NOT NULL,
+            actor TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES broadcast_events (id) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_events_bot_id ON broadcast_events (bot_id, updated_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_contacts_event_status ON broadcast_event_contacts (event_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_logs_event ON broadcast_event_logs (event_id, created_at)')
     
     conn.commit()
     conn.close()
@@ -793,6 +852,298 @@ def _row_to_scheduled_job(row):
     }
 
 
+# === Broadcast Events API ===
+
+def _json_dumps(value):
+    return json.dumps(value, ensure_ascii=False) if value is not None else None
+
+def _json_loads(value, fallback=None):
+    if value in (None, ''):
+        return fallback
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+def create_broadcast_event(bot_id, name, description='', selected_filters=None,
+                           message_plan=None, contacts=None, created_by=''):
+    """建立可續傳的群發事件，並可同步寫入目標聯絡人快照"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+
+    cursor.execute('''
+        INSERT INTO broadcast_events (
+            bot_id, name, description, status, selected_filters,
+            message_plan, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)
+    ''', (
+        bot_id, name, description, _json_dumps(selected_filters or {}),
+        _json_dumps(message_plan or []), created_by, now, now
+    ))
+    event_id = cursor.lastrowid
+
+    if contacts:
+        _upsert_broadcast_contacts(cursor, event_id, contacts, now)
+
+    conn.commit()
+    conn.close()
+    return event_id
+
+def list_broadcast_events(bot_id=None, limit=50):
+    """列出群發事件，包含每個事件的進度摘要"""
+    conn = get_db()
+    cursor = conn.cursor()
+    params = []
+    where = ''
+    if bot_id:
+        where = 'WHERE e.bot_id = ?'
+        params.append(bot_id)
+
+    params.append(limit)
+    cursor.execute(f'''
+        SELECT
+            e.*,
+            COUNT(c.id) AS total_contacts,
+            SUM(CASE WHEN c.status = 'sent' THEN 1 ELSE 0 END) AS sent_contacts,
+            SUM(CASE WHEN c.status = 'failed' THEN 1 ELSE 0 END) AS failed_contacts,
+            SUM(CASE WHEN c.status = 'pending' THEN 1 ELSE 0 END) AS pending_contacts
+        FROM broadcast_events e
+        LEFT JOIN broadcast_event_contacts c ON c.event_id = e.id
+        {where}
+        GROUP BY e.id
+        ORDER BY e.updated_at DESC
+        LIMIT ?
+    ''', params)
+    rows = cursor.fetchall()
+    conn.close()
+    return [_row_to_broadcast_event(row, include_details=False) for row in rows]
+
+def get_broadcast_event(event_id):
+    """取得單一群發事件，包含聯絡人快照與最近紀錄"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT
+            e.*,
+            COUNT(c.id) AS total_contacts,
+            SUM(CASE WHEN c.status = 'sent' THEN 1 ELSE 0 END) AS sent_contacts,
+            SUM(CASE WHEN c.status = 'failed' THEN 1 ELSE 0 END) AS failed_contacts,
+            SUM(CASE WHEN c.status = 'pending' THEN 1 ELSE 0 END) AS pending_contacts
+        FROM broadcast_events e
+        LEFT JOIN broadcast_event_contacts c ON c.event_id = e.id
+        WHERE e.id = ?
+        GROUP BY e.id
+    ''', (event_id,))
+    event_row = cursor.fetchone()
+    if not event_row:
+        conn.close()
+        return None
+
+    cursor.execute('''
+        SELECT * FROM broadcast_event_contacts
+        WHERE event_id = ?
+        ORDER BY position ASC, id ASC
+    ''', (event_id,))
+    contact_rows = cursor.fetchall()
+
+    cursor.execute('''
+        SELECT * FROM broadcast_event_logs
+        WHERE event_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 100
+    ''', (event_id,))
+    log_rows = cursor.fetchall()
+    conn.close()
+
+    event = _row_to_broadcast_event(event_row, include_details=True)
+    event['contacts'] = [_row_to_broadcast_contact(row) for row in contact_rows]
+    event['logs'] = [dict(row) for row in log_rows]
+    return event
+
+def update_broadcast_event(event_id, **kwargs):
+    """更新群發事件 metadata 或狀態"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    allowed_fields = ['name', 'description', 'status', 'selected_filters', 'message_plan']
+    updates = []
+    values = []
+
+    for key, value in kwargs.items():
+        if key in allowed_fields:
+            if key in ['selected_filters', 'message_plan'] and not isinstance(value, str):
+                value = _json_dumps(value)
+            updates.append(f'{key} = ?')
+            values.append(value)
+
+    if updates:
+        updates.append('updated_at = ?')
+        values.append(now)
+        values.append(event_id)
+        cursor.execute(f'UPDATE broadcast_events SET {", ".join(updates)} WHERE id = ?', values)
+        conn.commit()
+
+    conn.close()
+
+def replace_broadcast_event_contacts(event_id, contacts):
+    """以目前篩選結果取代事件聯絡人快照，保留已送狀態"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    _upsert_broadcast_contacts(cursor, event_id, contacts, now)
+    cursor.execute('UPDATE broadcast_events SET updated_at = ? WHERE id = ?', (now, event_id))
+    conn.commit()
+    conn.close()
+
+def record_broadcast_deliveries(event_id, deliveries, actor=''):
+    """批次寫入發送結果，並同步更新每位聯絡人的狀態"""
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.utcnow().isoformat()
+
+    for item in deliveries:
+        contact_id = item.get('contact_id')
+        status = item.get('status', 'sent')
+        message_index = item.get('message_index')
+        message_type = item.get('message_type')
+        error = item.get('error')
+        item_actor = item.get('actor') or actor
+
+        cursor.execute('''
+            INSERT INTO broadcast_event_logs (
+                event_id, contact_id, message_index, message_type,
+                status, actor, error, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (event_id, contact_id, message_index, message_type, status, item_actor, error, now))
+
+        if contact_id:
+            if status == 'sent':
+                cursor.execute('''
+                    UPDATE broadcast_event_contacts
+                    SET status = 'sent',
+                        sent_count = sent_count + 1,
+                        last_error = NULL,
+                        last_actor = ?,
+                        last_sent_at = ?,
+                        updated_at = ?
+                    WHERE event_id = ? AND contact_id = ?
+                ''', (item_actor, now, now, event_id, contact_id))
+            elif status == 'failed':
+                cursor.execute('''
+                    UPDATE broadcast_event_contacts
+                    SET status = 'failed',
+                        failed_count = failed_count + 1,
+                        last_error = ?,
+                        last_actor = ?,
+                        updated_at = ?
+                    WHERE event_id = ? AND contact_id = ?
+                ''', (error, item_actor, now, event_id, contact_id))
+            elif status == 'pending':
+                cursor.execute('''
+                    UPDATE broadcast_event_contacts
+                    SET status = 'pending',
+                        last_error = NULL,
+                        last_actor = ?,
+                        updated_at = ?
+                    WHERE event_id = ? AND contact_id = ?
+                ''', (item_actor, now, event_id, contact_id))
+
+    cursor.execute('UPDATE broadcast_events SET updated_at = ? WHERE id = ?', (now, event_id))
+    conn.commit()
+    conn.close()
+
+def delete_broadcast_event(event_id):
+    """刪除群發事件"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM broadcast_events WHERE id = ?', (event_id,))
+    conn.commit()
+    conn.close()
+
+def _upsert_broadcast_contacts(cursor, event_id, contacts, now):
+    for index, contact in enumerate(contacts):
+        contact_id = contact.get('contact_id') or contact.get('contactId')
+        if not contact_id:
+            continue
+        display_name = contact.get('display_name') or contact.get('displayName') or ''
+        profile_name = contact.get('profile_name') or contact.get('profileName') or ''
+        nickname = contact.get('nickname') or ''
+        tags = contact.get('tags') or []
+        position = contact.get('position', index)
+
+        cursor.execute('''
+            INSERT INTO broadcast_event_contacts (
+                event_id, contact_id, display_name, profile_name,
+                nickname, tags, position, status, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            ON CONFLICT(event_id, contact_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                profile_name = excluded.profile_name,
+                nickname = excluded.nickname,
+                tags = excluded.tags,
+                position = excluded.position,
+                updated_at = excluded.updated_at
+        ''', (
+            event_id, contact_id, display_name, profile_name, nickname,
+            _json_dumps(tags), position, now
+        ))
+
+def _row_to_broadcast_event(row, include_details=False):
+    total_contacts = row['total_contacts'] if 'total_contacts' in row.keys() else 0
+    sent_contacts = row['sent_contacts'] if 'sent_contacts' in row.keys() else 0
+    failed_contacts = row['failed_contacts'] if 'failed_contacts' in row.keys() else 0
+    pending_contacts = row['pending_contacts'] if 'pending_contacts' in row.keys() else 0
+    total_contacts = total_contacts or 0
+    sent_contacts = sent_contacts or 0
+    failed_contacts = failed_contacts or 0
+    pending_contacts = pending_contacts or 0
+    progress = round((sent_contacts / total_contacts) * 100, 1) if total_contacts else 0
+
+    event = {
+        'id': row['id'],
+        'bot_id': row['bot_id'],
+        'name': row['name'],
+        'description': row['description'],
+        'status': row['status'],
+        'created_by': row['created_by'],
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+        'summary': {
+            'total_contacts': total_contacts,
+            'sent_contacts': sent_contacts,
+            'failed_contacts': failed_contacts,
+            'pending_contacts': pending_contacts,
+            'progress': progress
+        }
+    }
+
+    if include_details:
+        event['selected_filters'] = _json_loads(row['selected_filters'], {})
+        event['message_plan'] = _json_loads(row['message_plan'], [])
+
+    return event
+
+def _row_to_broadcast_contact(row):
+    return {
+        'id': row['id'],
+        'event_id': row['event_id'],
+        'contact_id': row['contact_id'],
+        'display_name': row['display_name'],
+        'profile_name': row['profile_name'],
+        'nickname': row['nickname'],
+        'tags': _json_loads(row['tags'], []),
+        'position': row['position'],
+        'status': row['status'],
+        'sent_count': row['sent_count'],
+        'failed_count': row['failed_count'],
+        'last_error': row['last_error'],
+        'last_actor': row['last_actor'],
+        'last_sent_at': row['last_sent_at'],
+        'updated_at': row['updated_at']
+    }
+
+
 if __name__ == '__main__':
     init_db()
-

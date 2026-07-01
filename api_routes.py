@@ -573,8 +573,127 @@ def run_schedule_now(job_id):
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
 
+# === Broadcast Events API ===
+
+@api_bp.route('/broadcast-events', methods=['GET'])
+@apply_auth
+def list_broadcast_events():
+    """列出可續傳的 LINE Biz 群發事件"""
+    try:
+        bot_id = request.args.get('bot_id')
+        limit = request.args.get('limit', 50, type=int)
+        limit = max(1, min(limit, 200))
+        events = db.list_broadcast_events(bot_id=bot_id, limit=limit)
+        return jsonify({'ok': True, 'data': events})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events', methods=['POST'])
+@apply_auth
+def create_broadcast_event():
+    """建立群發事件，通常由瀏覽器外掛送入目標聯絡人快照"""
+    try:
+        data = request.get_json() or {}
+        bot_id = data.get('bot_id', '').strip()
+        name = data.get('name', '').strip()
+
+        if not bot_id or not name:
+            return jsonify({'ok': False, 'message': 'bot_id 和事件名稱不能為空'}), 400
+
+        contacts = data.get('contacts') or []
+        event_id = db.create_broadcast_event(
+            bot_id=bot_id,
+            name=name,
+            description=data.get('description', ''),
+            selected_filters=data.get('selected_filters') or {},
+            message_plan=data.get('message_plan') or [],
+            contacts=contacts,
+            created_by=data.get('created_by', '')
+        )
+        event = db.get_broadcast_event(event_id)
+        return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>', methods=['GET'])
+@apply_auth
+def get_broadcast_event(event_id):
+    """取得群發事件完整狀態"""
+    try:
+        event = db.get_broadcast_event(event_id)
+        if not event:
+            return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
+        return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>', methods=['PUT'])
+@apply_auth
+def update_broadcast_event(event_id):
+    """更新群發事件名稱、描述、狀態或事件快照"""
+    try:
+        data = request.get_json() or {}
+        allowed = {}
+        for key in ['name', 'description', 'status', 'selected_filters', 'message_plan']:
+            if key in data:
+                allowed[key] = data[key]
+
+        db.update_broadcast_event(event_id, **allowed)
+        event = db.get_broadcast_event(event_id)
+        if not event:
+            return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
+        return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>', methods=['DELETE'])
+@apply_auth
+def delete_broadcast_event(event_id):
+    """刪除群發事件"""
+    try:
+        db.delete_broadcast_event(event_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>/contacts', methods=['POST'])
+@apply_auth
+def replace_broadcast_event_contacts(event_id):
+    """重建/補齊事件聯絡人快照，既有已送狀態會保留"""
+    try:
+        data = request.get_json() or {}
+        contacts = data.get('contacts') or []
+        db.replace_broadcast_event_contacts(event_id, contacts)
+        event = db.get_broadcast_event(event_id)
+        if not event:
+            return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
+        return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+@api_bp.route('/broadcast-events/<int:event_id>/deliveries', methods=['POST'])
+@apply_auth
+def record_broadcast_deliveries(event_id):
+    """批次回報外掛實際送出的聯絡人狀態"""
+    try:
+        data = request.get_json() or {}
+        deliveries = data.get('deliveries') or []
+        if not isinstance(deliveries, list) or not deliveries:
+            return jsonify({'ok': False, 'message': 'deliveries 不能為空'}), 400
+
+        db.record_broadcast_deliveries(
+            event_id,
+            deliveries,
+            actor=data.get('actor', '')
+        )
+        event = db.get_broadcast_event(event_id)
+        if not event:
+            return jsonify({'ok': False, 'message': '找不到群發事件'}), 404
+        return jsonify({'ok': True, 'data': event})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
 def allowed_file(filename):
     """檢查檔案副檔名是否允許"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
-
