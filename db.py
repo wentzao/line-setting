@@ -992,6 +992,27 @@ def replace_broadcast_event_contacts(event_id, contacts):
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.utcnow().isoformat()
+    incoming_ids = [
+        contact.get('contact_id') or contact.get('contactId')
+        for contact in contacts
+        if contact.get('contact_id') or contact.get('contactId')
+    ]
+
+    if incoming_ids:
+        placeholders = ','.join(['?'] * len(incoming_ids))
+        cursor.execute(f'''
+            DELETE FROM broadcast_event_contacts
+            WHERE event_id = ?
+              AND status != 'sent'
+              AND contact_id NOT IN ({placeholders})
+        ''', [event_id] + incoming_ids)
+    else:
+        cursor.execute('''
+            DELETE FROM broadcast_event_contacts
+            WHERE event_id = ?
+              AND status != 'sent'
+        ''', (event_id,))
+
     _upsert_broadcast_contacts(cursor, event_id, contacts, now)
     cursor.execute('UPDATE broadcast_events SET updated_at = ? WHERE id = ?', (now, event_id))
     conn.commit()
