@@ -36,6 +36,7 @@ logs/
 
 # OS
 .DS_Store
+._*
 Thumbs.db
 
 # 環境變數

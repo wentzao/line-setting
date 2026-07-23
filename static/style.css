@@ -378,8 +378,8 @@ code {
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
-    height: 8px;
-    /* 固定高度 */
+    min-height: 34px;
+    font-family: inherit;
 }
 
 .tab:hover {
@@ -648,51 +648,71 @@ code {
 
 /* Settings Tabs inside Modal */
 .settings-tabs-container {
-    padding: 0 1rem;
+    padding: 0.75rem 1rem;
     border-bottom: 1px solid #e5e7eb;
-    background: #fafafa;
+    background: #f8fafc;
 }
 
 .settings-tabs {
     display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: #d1d5db #fafafa;
-}
-
-.settings-tabs::-webkit-scrollbar {
-    height: 4px;
-}
-
-.settings-tabs::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 2px;
+    align-items: end;
+    gap: 1rem;
 }
 
 .settings-tab {
-    padding: 0.75rem 1rem;
-    background: transparent;
-    border: none;
+    min-height: 42px;
+    padding: 0.65rem 1rem;
+    background: #fff;
+    border: 1px solid #dbe2ea;
+    border-radius: 8px;
     cursor: pointer;
     font-size: 0.9rem;
-    font-weight: 500;
-    color: #6b7280;
+    font-weight: 600;
+    color: #475569;
     white-space: nowrap;
-    border-bottom: 2px solid transparent;
     transition: all 0.2s ease;
+    font-family: inherit;
 }
 
 .settings-tab:hover {
-    color: #374151;
-    background: rgba(255, 255, 255, 0.5);
+    color: #0f172a;
+    border-color: #94a3b8;
 }
 
 .settings-tab.active {
-    color: var(--primary-color);
+    color: #047857;
     font-weight: 600;
-    border-bottom-color: var(--primary-color);
-    background: transparent;
+    border-color: #10b981;
+    background: #ecfdf5;
+}
+
+.settings-menu-picker {
+    display: grid;
+    gap: 0.3rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-menu-picker label {
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.settings-menu-picker select {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.55rem 2.25rem 0.55rem 0.75rem;
+    border: 1px solid #dbe2ea;
+    border-radius: 8px;
+    background: #fff;
+    color: #0f172a;
+    font: inherit;
+}
+
+.settings-menu-picker.active select {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
 }
 
 .modal-header,
@@ -717,6 +737,180 @@ code {
     display: flex;
     justify-content: flex-end;
     gap: 0.5rem;
+}
+
+.settings-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.settings-summary h4,
+.settings-section h4 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 1rem;
+}
+
+.settings-eyebrow {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.status-pill {
+    flex: none;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.status-pill.connected {
+    color: #047857;
+    background: #d1fae5;
+}
+
+.status-pill.local-only {
+    color: #475569;
+    background: #e2e8f0;
+}
+
+.settings-section {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
+}
+
+.settings-section-heading {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.settings-section-heading p {
+    margin: 0.3rem 0 0;
+    color: #64748b;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.form-group.compact {
+    margin-bottom: 0.85rem;
+}
+
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+}
+
+.settings-actions.split {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.input-with-action {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+}
+
+.danger-zone {
+    border-color: #fecaca;
+    background: #fffafa;
+}
+
+.danger-zone .settings-section-heading h4 {
+    color: #991b1b;
+}
+
+.danger-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid #fee2e2;
+}
+
+.danger-action-row:first-of-type {
+    border-top: none;
+}
+
+.danger-action-row > div {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.danger-action-row strong {
+    color: #7f1d1d;
+    font-size: 0.9rem;
+}
+
+.danger-action-row span {
+    color: #64748b;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.btn.secondary-danger {
+    color: #b91c1c;
+    background: #fff;
+    border: 1px solid #fca5a5;
+}
+
+.btn.secondary-danger:hover {
+    color: #fff;
+    background: #b91c1c;
+}
+
+#settings-status {
+    min-height: 1.25rem;
+    margin-right: auto;
+    font-size: 0.85rem;
+}
+
+#settings-status.success {
+    color: #047857;
+}
+
+#settings-status.error {
+    color: #b91c1c;
+}
+
+@media (max-width: 640px) {
+    .settings-tabs {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+
+    .settings-summary,
+    .danger-action-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .danger-action-row .btn {
+        width: 100%;
+    }
+
+    .input-with-action {
+        grid-template-columns: 1fr;
+    }
 }
 
 .publish-controls {
