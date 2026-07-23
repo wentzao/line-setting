@@ -304,8 +304,10 @@ def upload_richmenu_image(rich_menu_id):
                 'message': f'圖片尺寸必須為 2500x1686、2500x843 或 1200x810，目前是 {image.size[0]}x{image.size[1]}'
             }), 400
         
-        # 保存原圖
-        filename = secure_filename(f'rm_{rich_menu_id}_{file.filename}')
+        # 每次上傳使用唯一檔名，避免替換圖片後瀏覽器仍顯示舊快取。
+        safe_original = secure_filename(file.filename)
+        extension = os.path.splitext(safe_original)[1].lower()
+        filename = f'rm_{rich_menu_id}_{uuid.uuid4().hex[:12]}{extension}'
         filepath = os.path.join(config.UPLOAD_FOLDER, filename)
         with open(filepath, 'wb') as f:
             f.write(image_data)
@@ -341,7 +343,7 @@ def get_upload(filename):
         filepath = os.path.join(config.UPLOAD_FOLDER, secure_filename(filename))
         if not os.path.exists(filepath):
             return jsonify({'ok': False, 'message': '檔案不存在'}), 404
-        return send_file(filepath)
+        return send_file(filepath, max_age=0)
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
 

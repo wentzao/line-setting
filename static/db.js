@@ -151,6 +151,30 @@ window.deleteAccount = async function deleteAccount(accountId) {
 
 // === Projects API ===
 
+window.saveProjectDetails = async function saveProjectDetails(project) {
+    if (!project || !project.id) {
+        throw new Error('專案尚未建立');
+    }
+
+    const response = await fetch(`${API_BASE}/projects/${project.id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            name: project.name,
+            description: project.description || ''
+        })
+    });
+
+    const data = await response.json();
+    if (!data.ok) {
+        throw new Error(data.message || '更新專案失敗');
+    }
+
+    return project;
+};
+
 window.saveProject = async function saveProject(project) {
     try {
         // 先取得 account_id
@@ -163,21 +187,7 @@ window.saveProject = async function saveProject(project) {
 
         if (project.id) {
             // 更新現有專案
-            const response = await fetch(`${API_BASE}/projects/${project.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: project.name,
-                    description: project.description
-                })
-            });
-
-            const data = await response.json();
-            if (!data.ok) {
-                throw new Error(data.message || '更新專案失敗');
-            }
+            await saveProjectDetails(project);
 
             // 取得資料庫中的所有 Rich Menu ID
             const projectData = await getProject(project.projectId || project.id);
@@ -330,6 +340,60 @@ async function updateRichMenuInBackend(richMenu) {
     }
 }
 
+window.saveRichMenu = async function saveRichMenu(project, richMenu) {
+    if (!project || !project.id) {
+        throw new Error('專案尚未建立');
+    }
+    if (!richMenu) {
+        throw new Error('找不到 Rich Menu');
+    }
+
+    if (typeof richMenu.id === 'number') {
+        await updateRichMenuInBackend(richMenu);
+        return richMenu;
+    }
+
+    if (typeof richMenu.id !== 'string' || !richMenu.id.startsWith('rm_')) {
+        throw new Error('Rich Menu ID 格式不正確');
+    }
+
+    const response = await fetch(`${API_BASE}/projects/${project.id}/richmenus`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            name: richMenu.name,
+            alias: richMenu.alias || '',
+            metadata: richMenu.metadata
+        })
+    });
+
+    const data = await response.json();
+    if (!data.ok) {
+        throw new Error(data.message || '建立 Rich Menu 失敗');
+    }
+
+    richMenu.id = data.data.id;
+    if (richMenu.image && richMenu.image.dataUrl && !richMenu.image.path) {
+        await uploadImageToBackend(richMenu.id, richMenu.image);
+    }
+
+    return richMenu;
+};
+
+window.deleteRichMenuRecord = async function deleteRichMenuRecord(richMenuId) {
+    if (typeof richMenuId !== 'number') return;
+
+    const response = await fetch(`${API_BASE}/richmenus/${richMenuId}`, {
+        method: 'DELETE'
+    });
+    const data = await response.json();
+    if (!data.ok) {
+        throw new Error(data.message || '移除 Rich Menu 失敗');
+    }
+};
+
 // 上傳圖片到後端
 async function uploadImageToBackend(richMenuId, imageData) {
     try {
@@ -385,36 +449,18 @@ window.getProject = async function getProject(projectId) {
         // 轉換為前端格式
         const project = data.data;
 
-        // 處理 Rich Menus 並加載圖片
-        const richMenus = await Promise.all(project.rich_menus.map(async (rm) => {
-            let imageData = null;
-
-            // 如果有圖片路徑，從後端加載圖片並轉換為 dataUrl
-            if (rm.image_path) {
-                try {
-                    const imageUrl = `/api/uploads/${rm.image_path}`;
-                    const imgResponse = await fetch(imageUrl);
-                    if (imgResponse.ok) {
-                        const blob = await imgResponse.blob();
-                        const dataUrl = await blobToDataUrl(blob);
-
-                        // 獲取圖片尺寸
-                        const dimensions = await getImageDimensionsFromDataUrl(dataUrl);
-
-                        imageData = {
-                            name: rm.image_path,
-                            type: blob.type,
-                            dataUrl: dataUrl,
-                            width: dimensions.width,
-                            height: dimensions.height,
-                            path: rm.image_path,
-                            thumbnail: rm.thumbnail_path
-                        };
-                    }
-                } catch (err) {
-                    console.error('加載圖片失敗:', rm.image_path, err);
-                }
-            }
+        // 圖片保留為後端 URL，切到該分頁時才由 Canvas 載入。
+        // 避免開啟專案時把每張完整圖片都轉成大型 base64 字串。
+        const richMenus = project.rich_menus.map((rm) => {
+            const imageData = rm.image_path ? {
+                name: rm.image_path,
+                type: /\.jpe?g$/i.test(rm.image_path) ? 'image/jpeg' : 'image/png',
+                dataUrl: `${API_BASE}/uploads/${encodeURIComponent(rm.image_path)}?v=${encodeURIComponent(rm.updated_at || '')}`,
+                width: rm.metadata.size.width,
+                height: rm.metadata.size.height,
+                path: rm.image_path,
+                thumbnail: rm.thumbnail_path
+            } : null;
 
             return {
                 id: rm.id,
@@ -422,9 +468,10 @@ window.getProject = async function getProject(projectId) {
                 name: rm.name,
                 alias: rm.alias,
                 image: imageData,
-                metadata: rm.metadata
+                metadata: rm.metadata,
+                updatedAt: rm.updated_at
             };
-        }));
+        });
 
         return {
             id: project.id,  // 保留數字 ID 供 saveProject 使用
@@ -653,4 +700,3 @@ window.deleteScheduledJob = async function deleteScheduledJob(jobId) {
         return { ok: false, message: e.message };
     }
 };
-
