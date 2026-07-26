@@ -16,6 +16,46 @@ from auth import check_ip_whitelist
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
+def normalize_flex_content(json_content):
+    """將外部工具貼上的 Flex JSON 正規化為 LINE contents 容器。"""
+    if isinstance(json_content, str):
+        try:
+            json_content = json.loads(json_content)
+        except json.JSONDecodeError as exc:
+            raise ValueError('無效的 JSON 格式') from exc
+
+    # 部分外掛只會複製 bubble 陣列；LINE contents 需要 carousel 物件。
+    if isinstance(json_content, list):
+        json_content = {
+            'type': 'carousel',
+            'contents': json_content
+        }
+
+    if not isinstance(json_content, dict):
+        raise ValueError('Flex Message 必須是 bubble、carousel 或 bubble 陣列')
+
+    # 也接受完整 Messaging API Flex Message，儲存時只保留 contents。
+    if json_content.get('type') == 'flex':
+        json_content = json_content.get('contents')
+        if not isinstance(json_content, dict):
+            raise ValueError('Flex Message 的 contents 必須是物件')
+
+    container_type = json_content.get('type')
+    if container_type == 'bubble':
+        return json_content
+
+    if container_type == 'carousel':
+        bubbles = json_content.get('contents')
+        if not isinstance(bubbles, list) or not bubbles:
+            raise ValueError('carousel.contents 必須是非空的 bubble 陣列')
+        if len(bubbles) > 12:
+            raise ValueError('carousel 最多只能包含 12 個 bubble')
+        if not all(isinstance(item, dict) and item.get('type') == 'bubble' for item in bubbles):
+            raise ValueError('carousel.contents 只能包含 bubble 物件')
+        return json_content
+
+    raise ValueError('Flex Message 最外層 type 必須是 bubble 或 carousel')
+
 # 簡化的裝飾器應用（可選擇性啟用 IP 白名單）
 def apply_auth(f):
     """應用驗證裝飾器"""
@@ -417,12 +457,10 @@ def create_flex_message():
         if not json_content:
             return jsonify({'ok': False, 'message': 'Flex Message 內容不能為空'}), 400
         
-        # 簡單驗證 JSON
-        if isinstance(json_content, str):
-            try:
-                json_content = json.loads(json_content)
-            except:
-                return jsonify({'ok': False, 'message': '無效的 JSON 格式'}), 400
+        try:
+            json_content = normalize_flex_content(json_content)
+        except ValueError as e:
+            return jsonify({'ok': False, 'message': str(e)}), 400
         
         msg_id = db.create_flex_message(name, json_content)
         return jsonify({'ok': True, 'data': {'id': msg_id, 'name': name}})
@@ -451,12 +489,11 @@ def update_flex_message(flex_id):
         name = data.get('name')
         json_content = data.get('json_content')
         
-        # 簡單驗證 JSON
-        if json_content is not None and isinstance(json_content, str):
+        if json_content is not None:
             try:
-                json_content = json.loads(json_content)
-            except:
-                return jsonify({'ok': False, 'message': '無效的 JSON 格式'}), 400
+                json_content = normalize_flex_content(json_content)
+            except ValueError as e:
+                return jsonify({'ok': False, 'message': str(e)}), 400
         
         db.update_flex_message(flex_id, name, json_content)
         return jsonify({'ok': True})

@@ -3739,6 +3739,42 @@ function renderActionFields(state) {
 }
 
 // === Flex Message Editor Modal ===
+function normalizeFlexEditorJson(parsed) {
+    // 部分 LINE 外掛只複製 bubble 陣列，自動轉為合法 carousel。
+    if (Array.isArray(parsed)) {
+        parsed = {
+            type: 'carousel',
+            contents: parsed
+        };
+    }
+
+    // 若貼入完整 Messaging API 訊息，只取 Simulator/LINE 所需的 contents。
+    if (parsed && typeof parsed === 'object' && parsed.type === 'flex') {
+        parsed = parsed.contents;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Flex Message 必須是 bubble、carousel 或 bubble 陣列');
+    }
+
+    if (parsed.type === 'bubble') return parsed;
+
+    if (parsed.type === 'carousel') {
+        if (!Array.isArray(parsed.contents) || parsed.contents.length === 0) {
+            throw new Error('carousel.contents 必須是非空的 bubble 陣列');
+        }
+        if (parsed.contents.length > 12) {
+            throw new Error('carousel 最多只能包含 12 個 bubble');
+        }
+        if (!parsed.contents.every(item => item && item.type === 'bubble')) {
+            throw new Error('carousel.contents 只能包含 bubble 物件');
+        }
+        return parsed;
+    }
+
+    throw new Error('Flex Message 最外層 type 必須是 bubble 或 carousel');
+}
+
 function createFlexEditorModal() {
     if (document.getElementById('flex-editor-modal')) return;
 
@@ -3826,8 +3862,9 @@ async function openFlexEditorModal(flexId, onSaveCallback) {
         let parsed;
         try {
             parsed = JSON.parse(jsonStr);
+            parsed = normalizeFlexEditorJson(parsed);
         } catch (e) {
-            return alert('JSON 格式錯誤');
+            return alert('JSON 格式錯誤：' + e.message);
         }
 
         try {

@@ -598,8 +598,8 @@ def create_flex_message(name, json_content):
     created_at = datetime.utcnow().isoformat()
     
     # Ensure json_content is string
-    if isinstance(json_content, dict):
-        json_content = json.dumps(json_content)
+    if isinstance(json_content, (dict, list)):
+        json_content = json.dumps(json_content, ensure_ascii=False)
         
     cursor.execute('''
         INSERT INTO flex_messages (name, json_content, created_at)
@@ -657,8 +657,8 @@ def update_flex_message(flex_id, name=None, json_content=None):
         values.append(name)
     
     if json_content is not None:
-        if isinstance(json_content, dict):
-            json_content = json.dumps(json_content)
+        if isinstance(json_content, (dict, list)):
+            json_content = json.dumps(json_content, ensure_ascii=False)
         updates.append('json_content = ?')
         values.append(json_content)
         
