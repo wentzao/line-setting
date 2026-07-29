@@ -392,6 +392,7 @@ window.deleteRichMenuRecord = async function deleteRichMenuRecord(richMenuId) {
     if (!data.ok) {
         throw new Error(data.message || '移除 Rich Menu 失敗');
     }
+    return data.data || {};
 };
 
 // 上傳圖片到後端

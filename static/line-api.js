@@ -170,6 +170,38 @@ window.unlinkRichMenuFromUser = async function unlinkRichMenuFromUser(channelAcc
 };
 
 // Alias APIs
+window.listAliases = async function listAliases(channelAccessToken) {
+    try {
+        const res = await fetch(`${PROXY_BASE}/v2/bot/richmenu/alias/list`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${channelAccessToken}`
+            }
+        });
+        const text = await res.text();
+        if (!res.ok) return { ok: false, status: res.status, message: safeParseLineError(text) };
+        return { ok: true, data: JSON.parse(text) };
+    } catch (e) {
+        return { ok: false, message: e.message };
+    }
+};
+
+window.getAlias = async function getAlias(channelAccessToken, aliasId) {
+    try {
+        const res = await fetch(`${PROXY_BASE}/v2/bot/richmenu/alias/${encodeURIComponent(aliasId)}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${channelAccessToken}`
+            }
+        });
+        const text = await res.text();
+        if (!res.ok) return { ok: false, status: res.status, message: safeParseLineError(text) };
+        return { ok: true, data: JSON.parse(text) };
+    } catch (e) {
+        return { ok: false, message: e.message };
+    }
+};
+
 window.createAlias = async function createAlias(channelAccessToken, aliasId, richMenuId) {
     try {
         const res = await fetch(`${PROXY_BASE}/v2/bot/richmenu/alias`, {

@@ -9,6 +9,8 @@ from datetime import datetime
 from PIL import Image
 from io import BytesIO
 import base64
+import requests
+from urllib.parse import quote
 
 import db
 import config
@@ -309,12 +311,94 @@ def update_richmenu(rich_menu_id):
 @api_bp.route('/richmenus/<int:rich_menu_id>', methods=['DELETE'])
 @apply_auth
 def delete_richmenu(rich_menu_id):
-    """刪除 Rich Menu"""
+    """刪除本機 Rich Menu，以及它在 LINE 上擁有的版本與 Alias。"""
     try:
+        rm = db.get_rich_menu(rich_menu_id)
+        if not rm:
+            return jsonify({'ok': False, 'message': '找不到 Rich Menu'}), 404
+
+        project = db.get_project(rm['project_id'])
+        if not project:
+            return jsonify({'ok': False, 'message': '找不到 Rich Menu 所屬專案'}), 404
+        account = db.get_account(project['account_id'])
+        if not account:
+            return jsonify({'ok': False, 'message': '找不到專案所屬帳號'}), 404
+
+        remote_result = _delete_owned_line_rich_menu(
+            account['channel_access_token'],
+            rm.get('rich_menu_id'),
+            rm.get('alias')
+        )
+        if remote_result['alias_deleted'] and rm.get('alias'):
+            db.delete_alias(account['id'], rm['alias'])
         db.delete_rich_menu(rich_menu_id)
-        return jsonify({'ok': True})
+        return jsonify({'ok': True, 'data': remote_result})
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
+
+
+def _delete_owned_line_rich_menu(token, remote_rich_menu_id, alias_id):
+    """先移除仍指向此選單的 Alias，再刪除 LINE 遠端版本。"""
+    result = {
+        'remote_deleted': False,
+        'remote_missing': False,
+        'alias_deleted': False,
+        'alias_preserved': False
+    }
+    if not remote_rich_menu_id:
+        return result
+
+    headers = {'Authorization': f'Bearer {token}'}
+    alias_id = (alias_id or '').strip()
+    if alias_id:
+        encoded_alias = quote(alias_id, safe='')
+        alias_response = requests.get(
+            f'{config.LINE_API_BASE}/v2/bot/richmenu/alias/{encoded_alias}',
+            headers=headers,
+            timeout=30
+        )
+        if alias_response.status_code == 200:
+            alias_target = alias_response.json().get('richMenuId')
+            if alias_target == remote_rich_menu_id:
+                delete_alias_response = requests.delete(
+                    f'{config.LINE_API_BASE}/v2/bot/richmenu/alias/{encoded_alias}',
+                    headers=headers,
+                    timeout=30
+                )
+                if delete_alias_response.status_code not in (200, 404):
+                    raise ValueError(
+                        f'刪除 LINE Alias「{alias_id}」失敗 '
+                        f'({delete_alias_response.status_code}): '
+                        f'{delete_alias_response.text[:200]}'
+                    )
+                result['alias_deleted'] = True
+            else:
+                # Alias 已切到其他版本，不能因刪除舊紀錄而誤刪。
+                result['alias_preserved'] = True
+        elif alias_response.status_code == 404:
+            # 遠端已不存在；視同完成，並一併清掉可能殘留的本機 Alias 紀錄。
+            result['alias_deleted'] = True
+        else:
+            raise ValueError(
+                f'查詢 LINE Alias「{alias_id}」失敗 '
+                f'({alias_response.status_code}): {alias_response.text[:200]}'
+            )
+
+    delete_response = requests.delete(
+        f'{config.LINE_API_BASE}/v2/bot/richmenu/{quote(remote_rich_menu_id, safe="")}',
+        headers=headers,
+        timeout=30
+    )
+    if delete_response.status_code == 404:
+        result['remote_missing'] = True
+    elif delete_response.status_code == 200:
+        result['remote_deleted'] = True
+    else:
+        raise ValueError(
+            f'刪除 LINE Rich Menu 失敗 ({delete_response.status_code}): '
+            f'{delete_response.text[:200]}'
+        )
+    return result
 
 @api_bp.route('/richmenus/<int:rich_menu_id>/upload', methods=['POST'])
 @apply_auth

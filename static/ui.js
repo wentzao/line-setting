@@ -1459,7 +1459,7 @@ async function renderEditor(projectId) {
                                 <small class="grid-note">預設選單會自動顯示給所有未個別綁定的使用者</small>
                             </div>
                             <div class="form-group">
-                                <small>上傳前會自動刪除 LINE 端相同名稱的 Rich Menu。</small>
+                                <small>新版本建立、圖片上傳與切換完成後，才會清理 LINE 端的同名舊版本。</small>
                             </div>
                             <div id="upload-status" class="error"></div>
                         </div>
@@ -1522,7 +1522,7 @@ async function renderEditor(projectId) {
                                     <small class="grid-note">預設選單會自動顯示給所有未個別綁定的使用者</small>
                                 </div>
                                 <div class="form-group">
-                                    <small>上傳前會自動刪除 LINE 端相同名稱的 Rich Menu。</small>
+                                    <small>排程會先完成新版本上傳與切換，成功後才清理 LINE 端的同名舊版本。</small>
                                 </div>
                                 <hr style="margin: 1rem 0; border: none; border-top: 1px solid #e5e7eb;" />
                                 <div class="form-group">
@@ -1685,39 +1685,38 @@ async function renderEditor(projectId) {
         confirmBtn.disabled = true;
         confirmBtn.textContent = '上傳中...';
         try {
+            let uploadWarnings = [];
             const scope = document.querySelector('input[name="upload-scope"]:checked').value;
             if (scope === 'all') {
-                await uploadAllRichMenus(state, (msg) => statusEl.textContent = msg);
+                const deployment = await uploadAllRichMenus(
+                    state,
+                    (msg) => statusEl.textContent = msg
+                );
+                uploadWarnings = deployment.switchWarnings;
 
                 // Get default menu selection
                 const defaultMenuSelect = document.getElementById('default-menu-select');
                 const defaultMenuIndex = defaultMenuSelect.value;
 
                 // Set default Rich Menu if selected
-                if (defaultMenuIndex !== '') {
-                    const account = await getAccount(state.project.accountId);
-                    const token = account.channelAccessToken;
-                    const selectedRM = state.project.richMenus[parseInt(defaultMenuIndex)];
-                    const richMenuId = selectedRM && selectedRM.richMenuId;
-
-                    if (richMenuId) {
-                        statusEl.textContent = '正在設定預設選單...';
-                        const setDef = await setDefaultRichMenu(token, richMenuId);
-                        if (!setDef.ok) throw new Error(`設為預設失敗：${setDef.message || setDef.status}`);
-                        statusEl.textContent = '預設選單設定完成';
-                    } else {
-                        throw new Error('選擇的 Rich Menu 尚未上傳成功');
-                    }
-                }
-
                 // After bulk upload, apply publish choice
                 const target = document.querySelector('input[name="publish-target"]:checked').value;
                 const userIds = target === 'users' ? (document.getElementById('user-ids').value || '')
                     .split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
-                const account = await getAccount(state.project.accountId);
-                const token = account.channelAccessToken;
+                const token = deployment.token;
 
-                if (target === 'users' && userIds.length > 0) {
+                if (target === 'all' || defaultMenuIndex !== '') {
+                    const selectedIndex = defaultMenuIndex !== ''
+                        ? parseInt(defaultMenuIndex, 10)
+                        : state.currentTabIndex;
+                    const selectedRM = state.project.richMenus[selectedIndex];
+                    const richMenuId = selectedRM && selectedRM.richMenuId;
+                    if (!richMenuId) throw new Error('選擇的 Rich Menu 尚未上傳成功');
+
+                    statusEl.textContent = '正在切換帳號預設選單...';
+                    const setDef = await setDefaultRichMenu(token, richMenuId);
+                    if (!setDef.ok) throw new Error(`設為預設失敗：${setDef.message || setDef.status}`);
+                } else if (target === 'users' && userIds.length > 0) {
                     // Bind to specific users (use current tab's menu if not using default selector)
                     const currentRM = getCurrentRichMenu(state);
                     const richMenuId = currentRM && currentRM.richMenuId;
@@ -1728,11 +1727,32 @@ async function renderEditor(projectId) {
                         }
                     }
                 }
+
+                statusEl.textContent = '正在清理舊版本...';
+                const cleanupWarnings = await cleanupOldRichMenus(
+                    token,
+                    deployment.oldMenuIds,
+                    deployment.newMenuIds
+                );
+                if (cleanupWarnings.length > 0) {
+                    throw new Error(
+                        `新版本已發佈，但有 ${cleanupWarnings.length} 個舊版本清理失敗：`
+                        + cleanupWarnings.join('；')
+                    );
+                }
             } else {
-                await uploadCurrentRichMenu(state);
+                const deployment = await uploadCurrentRichMenu(state);
+                uploadWarnings = deployment.switchWarnings;
             }
             setModalVisible(false);
-            alert('上傳完成');
+            if (uploadWarnings.length > 0) {
+                alert(
+                    '上傳完成，但下列切換目標不存在，對應按鈕將無法切換：\n'
+                    + uploadWarnings.join('\n')
+                );
+            } else {
+                alert('上傳完成');
+            }
         } catch (e) {
             statusEl.textContent = e.message || '上傳失敗';
         } finally {
@@ -2287,14 +2307,14 @@ function wireTabControls(state) {
                     <div class="danger-action-row">
                         <div>
                             <strong>從 LINE 伺服器刪除</strong>
-                            <span>保留本機設計，但清除目前的 richMenuId。</span>
+                            <span>保留本機設計，並刪除目前 LINE 版本及仍指向它的 Alias。</span>
                         </div>
                         <button id="delete-remote" class="btn danger secondary-danger" ${isRemoteLinked ? '' : 'disabled'}>刪除 LINE 版本</button>
                     </div>
                     <div class="danger-action-row">
                         <div>
                             <strong>從專案移除</strong>
-                            <span>刪除本機設計，不會影響 LINE 伺服器上的版本。</span>
+                            <span>同步刪除本機設計、LINE 遠端版本及仍指向它的 Alias。</span>
                         </div>
                         <button id="delete-tab" class="btn danger">從專案移除</button>
                     </div>
@@ -2380,18 +2400,30 @@ function wireTabControls(state) {
                 const statusEl = document.getElementById('settings-status');
                 try {
                     if (!currentRM.richMenuId) throw new Error('此選單尚未連結 LINE');
-                    if (!confirm(`確定要從 LINE 伺服器刪除 ${currentRM.metadata.name} 嗎？本機設計會保留。`)) return;
+                    if (!confirm(`確定要從 LINE 伺服器刪除 ${currentRM.metadata.name} 嗎？仍指向這個版本的 Alias 也會刪除，本機設計會保留。`)) return;
                     statusEl.textContent = '刪除中...';
                     statusEl.className = '';
                     const account = await getAccount(state.project.accountId);
                     if (!account || !account.channelAccessToken) throw new Error('請先設定帳號 Token');
+                    const alias = (currentRM.alias || '').trim();
+                    if (alias) {
+                        const aliasInfo = await getAlias(account.channelAccessToken, alias);
+                        if (aliasInfo.ok && aliasInfo.data.richMenuId === currentRM.richMenuId) {
+                            const aliasDelete = await deleteAlias(account.channelAccessToken, alias);
+                            if (!aliasDelete.ok && aliasDelete.status !== 404) {
+                                throw new Error(aliasDelete.message || `刪除 Alias 失敗 ${aliasDelete.status}`);
+                            }
+                        } else if (!aliasInfo.ok && aliasInfo.status !== 404) {
+                            throw new Error(aliasInfo.message || `查詢 Alias 失敗 ${aliasInfo.status}`);
+                        }
+                    }
                     const del = await deleteRichMenu(account.channelAccessToken, currentRM.richMenuId);
-                    if (!del.ok) throw new Error(del.message || `刪除失敗 ${del.status}`);
+                    if (!del.ok && del.status !== 404) throw new Error(del.message || `刪除失敗 ${del.status}`);
                     currentRM.richMenuId = '';
                     document.getElementById('rm-id').value = '';
                     await saveRichMenu(state.project, currentRM);
                     renderSettingsContent();
-                    statusEl.textContent = '已刪除 LINE 版本，本機設計仍保留';
+                    statusEl.textContent = '已刪除 LINE 版本與所屬 Alias，本機設計仍保留';
                     statusEl.className = 'success';
                 } catch (e) {
                     statusEl.textContent = e.message || '刪除遠端失敗';
@@ -2405,7 +2437,7 @@ function wireTabControls(state) {
                     alert('至少需要保留一個 Rich Menu');
                     return;
                 }
-                if (confirm(`確定要從專案中移除「${currentRM.metadata.name}」嗎？LINE 上的版本不會被刪除。`)) {
+                if (confirm(`確定要移除「${currentRM.metadata.name}」嗎？本機設計、LINE 遠端版本及仍指向它的 Alias 都會刪除。`)) {
                     try {
                         await deleteRichMenuRecord(currentRM.id);
                     } catch (error) {
@@ -4081,51 +4113,40 @@ async function uploadCurrentRichMenu(state) {
     // Preflight validations
     validateRichMenuMetadata(metadata);
 
-    // Delete existing rich menus with the same name
     const listed = await listRichMenus(token);
     if (!listed.ok) throw new Error(`列出 Rich Menu 失敗：${listed.message || listed.status}`);
-    const sameNameMenus = (listed.data.richmenus || []).filter(m => m.name === metadata.name);
-    for (const m of sameNameMenus) {
-        const del = await deleteRichMenu(token, m.richMenuId);
-        if (!del.ok) throw new Error(`刪除同名 Rich Menu 失敗：${del.message || del.status}`);
-    }
+    const aliases = await listAliases(token);
+    if (!aliases.ok) throw new Error(`列出 Alias 失敗：${aliases.message || aliases.status}`);
+    const switchWarnings = findMissingRichMenuSwitchTargets(
+        [{ richMenu: currentRM, metadata }],
+        aliases.data.aliases || [],
+        new Set(currentRM.alias ? [currentRM.alias.trim()] : [])
+    );
 
-    // Create metadata
+    const oldMenuIds = new Set(
+        (listed.data.richmenus || [])
+            .filter(menu => menu.name === metadata.name)
+            .map(menu => menu.richMenuId)
+    );
+    if (currentRM.richMenuId) oldMenuIds.add(currentRM.richMenuId);
+
     const created = await createRichMenu(token, metadata);
     if (!created.ok) throw new Error(`建立 Rich Menu 失敗：${created.message || created.status}`);
     const richMenuId = created.data.richMenuId;
 
-    // Prepare upload image: ensure 2500x1686 and compress to JPEG to reduce size
-    const targetW = metadata.size.width;
-    const targetH = metadata.size.height;
-    let quality = 0.9;
-    let uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', quality);
-    let blob = dataUrlToBlob(uploadDataUrl);
-    // Target max ~4.5MB to be safe under common proxy limits
-    const MAX_BYTES = 4_500_000;
-    while (blob.size > MAX_BYTES && quality > 0.6) {
-        quality -= 0.1;
-        uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', Math.max(quality, 0.6));
-        blob = dataUrlToBlob(uploadDataUrl);
+    try {
+        const blob = await prepareRichMenuImage(currentRM, metadata);
+        const uploaded = await uploadRichMenuImage(token, richMenuId, blob);
+        if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
+    } catch (error) {
+        await deleteRichMenuBestEffort(token, richMenuId);
+        throw error;
     }
-    const uploaded = await uploadRichMenuImage(token, richMenuId, blob);
-    if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
 
-    // Sync alias to latest richMenuId if alias is provided
     if (currentRM.alias && currentRM.alias.trim() !== '') {
-        // Try update first; if fails with 404, create
-        let aliasRes = await updateAlias(token, currentRM.alias.trim(), richMenuId);
-        if (!aliasRes.ok && aliasRes.status === 404) {
-            aliasRes = await createAlias(token, currentRM.alias.trim(), richMenuId);
-        }
-        if (!aliasRes.ok) throw new Error(`同步 alias 失敗：${aliasRes.message || aliasRes.status}`);
+        await syncRichMenuAlias(token, currentRM.alias.trim(), richMenuId);
     }
 
-    // Persist the created richMenuId into current tab data for later operations
-    currentRM.richMenuId = richMenuId;
-    await saveRichMenu(state.project, currentRM);
-
-    // Bind
     if (target === 'all') {
         const setDef = await setDefaultRichMenu(token, richMenuId);
         if (!setDef.ok) throw new Error(`設為預設失敗：${setDef.message || setDef.status}`);
@@ -4135,6 +4156,21 @@ async function uploadCurrentRichMenu(state) {
             if (!link.ok) throw new Error(`綁定使用者 ${uid} 失敗：${link.message || link.status}`);
         }
     }
+
+    currentRM.richMenuId = richMenuId;
+    await saveRichMenu(state.project, currentRM);
+
+    const cleanupWarnings = await cleanupOldRichMenus(
+        token,
+        oldMenuIds,
+        new Set([richMenuId])
+    );
+    if (cleanupWarnings.length > 0) {
+        throw new Error(
+            `新版本已發佈，但舊版本清理失敗：${cleanupWarnings.join('；')}`
+        );
+    }
+    return { switchWarnings };
 }
 
 async function uploadAllRichMenus(state, onProgress) {
@@ -4146,10 +4182,11 @@ async function uploadAllRichMenus(state, onProgress) {
     if (!account || !account.channelAccessToken) throw new Error('找不到帳號的 Channel Access Token');
     const token = account.channelAccessToken;
 
+    const preparedMenus = [];
     for (let i = 0; i < project.richMenus.length; i++) {
         const currentRM = project.richMenus[i];
         const nameLabel = currentRM?.metadata?.name || `Rich Menu ${i + 1}`;
-        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 準備上傳：${nameLabel}`);
+        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 發佈前檢查：${nameLabel}`);
 
         if (!currentRM.image || !currentRM.image.dataUrl) {
             throw new Error(`「${nameLabel}」缺少圖片，請先上傳圖片`);
@@ -4157,53 +4194,147 @@ async function uploadAllRichMenus(state, onProgress) {
 
         const metadata = buildRichMenuMetadata(currentRM);
         validateRichMenuMetadata(metadata);
-
-        // Remove duplicates by name before create
-        const listed = await listRichMenus(token);
-        if (!listed.ok) throw new Error(`列出 Rich Menu 失敗：${listed.message || listed.status}`);
-        const sameNameMenus = (listed.data.richmenus || []).filter(m => m.name === metadata.name);
-        for (const m of sameNameMenus) {
-            const del = await deleteRichMenu(token, m.richMenuId);
-            if (!del.ok) throw new Error(`刪除同名 Rich Menu 失敗：${del.message || del.status}`);
-        }
-
-        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 建立 metadata：${nameLabel}`);
-        const created = await createRichMenu(token, metadata);
-        if (!created.ok) throw new Error(`建立 Rich Menu 失敗：${created.message || created.status}`);
-        const richMenuId = created.data.richMenuId;
-
-        // Prepare and upload image
-        const targetW = metadata.size.width;
-        const targetH = metadata.size.height;
-        let quality = 0.9;
-        let uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', quality);
-        let blob = dataUrlToBlob(uploadDataUrl);
-        const MAX_BYTES = 4_500_000;
-        while (blob.size > MAX_BYTES && quality > 0.6) {
-            quality -= 0.1;
-            uploadDataUrl = await resizeImageDataUrl(currentRM.image.dataUrl, targetW, targetH, 'image/jpeg', Math.max(quality, 0.6));
-            blob = dataUrlToBlob(uploadDataUrl);
-        }
-
-        if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 上傳圖片：${nameLabel}`);
-        const uploaded = await uploadRichMenuImage(token, richMenuId, blob);
-        if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
-
-        // Alias sync if needed
-        if (currentRM.alias && currentRM.alias.trim() !== '') {
-            if (onProgress) onProgress(`(${i + 1}/${project.richMenus.length}) 同步 alias：${currentRM.alias}`);
-            let aliasRes = await updateAlias(token, currentRM.alias.trim(), richMenuId);
-            if (!aliasRes.ok && aliasRes.status === 404) {
-                aliasRes = await createAlias(token, currentRM.alias.trim(), richMenuId);
-            }
-            if (!aliasRes.ok) throw new Error(`同步 alias 失敗：${aliasRes.message || aliasRes.status}`);
-        }
-
-        currentRM.richMenuId = richMenuId;
-        await saveRichMenu(state.project, currentRM);
+        const blob = await prepareRichMenuImage(currentRM, metadata);
+        preparedMenus.push({ index: i, richMenu: currentRM, metadata, blob });
     }
 
-    if (onProgress) onProgress('全部上傳完成');
+    const listed = await listRichMenus(token);
+    if (!listed.ok) throw new Error(`列出 Rich Menu 失敗：${listed.message || listed.status}`);
+    const aliases = await listAliases(token);
+    if (!aliases.ok) throw new Error(`列出 Alias 失敗：${aliases.message || aliases.status}`);
+    const publishingAliases = new Set(
+        preparedMenus
+            .map(item => (item.richMenu.alias || '').trim())
+            .filter(Boolean)
+    );
+    const switchWarnings = findMissingRichMenuSwitchTargets(
+        preparedMenus,
+        aliases.data.aliases || [],
+        publishingAliases
+    );
+
+    const oldMenuIds = new Set();
+    for (const item of preparedMenus) {
+        for (const menu of listed.data.richmenus || []) {
+            if (menu.name === item.metadata.name) oldMenuIds.add(menu.richMenuId);
+        }
+        if (item.richMenu.richMenuId) oldMenuIds.add(item.richMenu.richMenuId);
+    }
+
+    const newMenuIds = new Set();
+    try {
+        for (let i = 0; i < preparedMenus.length; i++) {
+            const item = preparedMenus[i];
+            const nameLabel = item.metadata.name;
+            if (onProgress) onProgress(`(${i + 1}/${preparedMenus.length}) 建立新版本：${nameLabel}`);
+            const created = await createRichMenu(token, item.metadata);
+            if (!created.ok) throw new Error(`建立 Rich Menu 失敗：${created.message || created.status}`);
+
+            item.newRichMenuId = created.data.richMenuId;
+            newMenuIds.add(item.newRichMenuId);
+            if (onProgress) onProgress(`(${i + 1}/${preparedMenus.length}) 上傳圖片：${nameLabel}`);
+            const uploaded = await uploadRichMenuImage(token, item.newRichMenuId, item.blob);
+            if (!uploaded.ok) throw new Error(`上傳圖片失敗：${uploaded.message || uploaded.status}`);
+        }
+    } catch (error) {
+        for (const richMenuId of newMenuIds) {
+            await deleteRichMenuBestEffort(token, richMenuId);
+        }
+        throw error;
+    }
+
+    for (let i = 0; i < preparedMenus.length; i++) {
+        const item = preparedMenus[i];
+        const alias = (item.richMenu.alias || '').trim();
+        if (alias) {
+            if (onProgress) onProgress(`(${i + 1}/${preparedMenus.length}) 切換 alias：${alias}`);
+            await syncRichMenuAlias(token, alias, item.newRichMenuId);
+        }
+
+        item.richMenu.richMenuId = item.newRichMenuId;
+        await saveRichMenu(state.project, item.richMenu);
+    }
+
+    if (onProgress) onProgress('新版本已建立，準備切換發佈目標');
+    return { token, oldMenuIds, newMenuIds, switchWarnings };
+}
+
+async function prepareRichMenuImage(richMenu, metadata) {
+    const targetW = metadata.size.width;
+    const targetH = metadata.size.height;
+    let quality = 0.9;
+    let uploadDataUrl = await resizeImageDataUrl(
+        richMenu.image.dataUrl,
+        targetW,
+        targetH,
+        'image/jpeg',
+        quality
+    );
+    let blob = dataUrlToBlob(uploadDataUrl);
+    const MAX_BYTES = 4_500_000;
+    while (blob.size > MAX_BYTES && quality > 0.6) {
+        quality -= 0.1;
+        uploadDataUrl = await resizeImageDataUrl(
+            richMenu.image.dataUrl,
+            targetW,
+            targetH,
+            'image/jpeg',
+            Math.max(quality, 0.6)
+        );
+        blob = dataUrlToBlob(uploadDataUrl);
+    }
+    return blob;
+}
+
+function findMissingRichMenuSwitchTargets(preparedMenus, remoteAliases, aliasesBeingPublished) {
+    const availableAliases = new Set(
+        remoteAliases.map(alias => alias.richMenuAliasId)
+    );
+    for (const alias of aliasesBeingPublished) availableAliases.add(alias);
+
+    const missingTargets = [];
+    for (const item of preparedMenus) {
+        for (const area of item.metadata.areas || []) {
+            const action = area.action || {};
+            if (
+                action.type === 'richmenuswitch'
+                && action.richMenuAliasId
+                && !availableAliases.has(action.richMenuAliasId)
+            ) {
+                missingTargets.push(
+                    `${item.metadata.name} → ${action.richMenuAliasId}`
+                );
+            }
+        }
+    }
+    return missingTargets;
+}
+
+async function syncRichMenuAlias(token, alias, richMenuId) {
+    let result = await updateAlias(token, alias, richMenuId);
+    if (!result.ok && result.status === 404) {
+        result = await createAlias(token, alias, richMenuId);
+    }
+    if (!result.ok) {
+        throw new Error(`同步 alias「${alias}」失敗：${result.message || result.status}`);
+    }
+}
+
+async function deleteRichMenuBestEffort(token, richMenuId) {
+    const result = await deleteRichMenu(token, richMenuId);
+    return result.ok || result.status === 404;
+}
+
+async function cleanupOldRichMenus(token, oldMenuIds, newMenuIds) {
+    const warnings = [];
+    for (const richMenuId of oldMenuIds) {
+        if (!richMenuId || newMenuIds.has(richMenuId)) continue;
+        const result = await deleteRichMenu(token, richMenuId);
+        if (!result.ok && result.status !== 404) {
+            warnings.push(`${richMenuId}: ${result.message || result.status}`);
+        }
+    }
+    return warnings;
 }
 
 async function resizeImageDataUrl(dataUrl, targetW, targetH, mime = 'image/jpeg', quality = 0.9) {
