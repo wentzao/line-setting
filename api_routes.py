@@ -461,6 +461,7 @@ def upload_richmenu_image(rich_menu_id):
         return jsonify({'ok': False, 'message': str(e)}), 500
 
 @api_bp.route('/uploads/<filename>', methods=['GET'])
+@apply_auth
 def get_upload(filename):
     """取得上傳的圖片"""
     try:
@@ -776,10 +777,28 @@ def update_broadcast_event(event_id):
 def delete_broadcast_event(event_id):
     """刪除群發事件"""
     try:
+        event = db.get_broadcast_event(event_id)
         db.delete_broadcast_event(event_id)
+        if event:
+            _delete_broadcast_event_attachments(event)
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'message': str(e)}), 500
+
+def _delete_broadcast_event_attachments(event):
+    """刪除事件所保存的附件；僅允許刪除該事件命名空間內的檔案。"""
+    event_id = event.get('id')
+    expected_prefix = f'broadcast_{event_id}_'
+    for stored_name in os.listdir(config.UPLOAD_FOLDER):
+        if not stored_name.startswith(expected_prefix):
+            continue
+        filepath = os.path.join(config.UPLOAD_FOLDER, stored_name)
+        try:
+            if os.path.isfile(filepath):
+                os.remove(filepath)
+        except OSError as exc:
+            # 不因單一附件清理失敗而留下無法刪除的事件；記錄供管理員追查。
+            print(f'刪除群發附件失敗 {stored_name}: {exc}')
 
 @api_bp.route('/broadcast-events/<int:event_id>/contacts', methods=['POST'])
 @apply_auth

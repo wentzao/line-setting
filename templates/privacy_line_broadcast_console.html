@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>文藻美語－群發控制台｜隱私權政策</title>
+  <style>
+    :root { color-scheme: light; --ink:#25313c; --muted:#657381; --line:#dde4e8; --green:#00995c; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif; color:var(--ink); background:#f6f8f9; }
+    main { width:min(860px,calc(100% - 32px)); margin:48px auto; padding:40px 44px; background:#fff; border:1px solid var(--line); border-radius:20px; }
+    h1 { margin:0 0 8px; font-size:32px; } h2 { margin:34px 0 8px; font-size:21px; }
+    p,li { color:var(--muted); } strong { color:var(--ink); } a { color:var(--green); }
+    .meta { margin:0; } .notice { padding:14px 16px; border-radius:12px; background:#f0f5f2; color:var(--ink); }
+    @media (max-width:640px) { main { margin:16px auto; padding:28px 22px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>文藻美語－群發控制台｜隱私權政策</h1>
+  <p class="meta">最後更新：2026 年 7 月 30 日</p>
+  <p class="notice">本擴充功能僅供文藻美語授權的內部教職員，在 LINE Official Account Manager 中執行校務群發，不對一般大眾開放。</p>
+
+  <h2>一、單一用途</h2>
+  <p>本擴充功能的用途是在 LINE Official Account Manager 中依標籤篩選已授權的聯絡人、建立群發事件、傳送文字或附件，並保存續傳與發送進度。</p>
+
+  <h2>二、處理的資料</h2>
+  <ul>
+    <li><strong>LINE 聯絡人資料：</strong>聯絡人識別碼、顯示名稱、暱稱與標籤。</li>
+    <li><strong>群發內容：</strong>事件名稱、說明、標籤條件、文字、卡片訊息識別資料，以及使用者主動選擇的圖片、影片或檔案。</li>
+    <li><strong>發送紀錄：</strong>傳送對象、狀態、失敗原因、操作人名稱與時間。</li>
+    <li><strong>暫時性驗證資訊：</strong>LINE 頁面提供的 CSRF token，只在目前瀏覽器記憶體中用於完成使用者要求的傳送，不會保存至文藻伺服器。</li>
+  </ul>
+
+  <h2>三、資料如何使用與傳輸</h2>
+  <p>聯絡人與訊息會依使用者操作傳送至 LINE Official Account Manager。為提供跨電腦續傳功能，群發事件快照、聯絡人名單、訊息計畫、附件及發送紀錄會透過 HTTPS 保存於 <strong>line-setting.wentzao.com</strong>。資料不會出售、用於廣告、信用評分或與本擴充功能單一用途無關的分析。</p>
+
+  <h2>四、本機保存</h2>
+  <p>擴充功能使用 Chrome 的本機儲存空間保存每一則訊息的續傳進度，避免重新開啟頁面後重複發送。此資料不會由 Chrome 自動同步至其他使用者。</p>
+
+  <h2>五、資料保存與刪除</h2>
+  <p>群發事件會保存至授權使用者在控制台刪除為止。刪除事件時，相關聯絡人快照、發送紀錄與該事件保存的附件會一併刪除。LINE 平台已收到的訊息仍依 LINE Yahoo 的規則保存。</p>
+
+  <h2>六、權限與安全</h2>
+  <p>擴充功能只在 <strong>chat.line.biz</strong> 與 <strong>manager.line.biz</strong> 頁面執行。本機儲存權限只用於續傳進度；後端 API 另受學校網路白名單保護，擴充功能也只透過 Chrome Web Store 私人名單發布。</p>
+
+  <h2>七、第三方與揭露</h2>
+  <p>本擴充功能不會將資料提供給資料仲介、廣告商或其他未授權第三方。LINE Official Account Manager 由 LINE Yahoo 提供，其服務仍受 LINE Yahoo 自身條款與隱私政策約束。</p>
+
+  <h2>八、聯絡方式</h2>
+  <p>如需查詢或刪除群發事件資料，請透過文藻美語內部管理管道聯絡系統管理員。</p>
+</main>
+</body>
+</html>

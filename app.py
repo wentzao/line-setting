@@ -45,6 +45,16 @@ def index():
     """首頁"""
     return render_template('index.html')
 
+@app.route('/privacy/wentzao-student-system')
+def privacy_wentzao_student_system():
+    """Chrome Web Store：文藻學生系統隱私權政策（公開頁面）。"""
+    return render_template('privacy_wentzao_student_system.html')
+
+@app.route('/privacy/line-broadcast-console')
+def privacy_line_broadcast_console():
+    """Chrome Web Store：文藻美語群發控制台隱私權政策（公開頁面）。"""
+    return render_template('privacy_line_broadcast_console.html')
+
 # === Socket.IO 事件 ===
 
 # 儲存每個房間（專案）的線上使用者
