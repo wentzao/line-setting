@@ -157,6 +157,26 @@ def unlink_richmenu_from_user(user_id):
 
 # === Alias 相關 API ===
 
+@line_proxy_bp.route('/v2/bot/richmenu/alias/list', methods=['GET', 'OPTIONS'])
+@check_ip_whitelist
+def list_aliases():
+    if request.method == 'OPTIONS':
+        return '', 200
+    return proxy_request(
+        f'{LINE_BASE}/v2/bot/richmenu/alias/list',
+        method='GET'
+    )
+
+@line_proxy_bp.route('/v2/bot/richmenu/alias/<alias_id>', methods=['GET', 'OPTIONS'])
+@check_ip_whitelist
+def get_alias(alias_id):
+    if request.method == 'OPTIONS':
+        return '', 200
+    return proxy_request(
+        f'{LINE_BASE}/v2/bot/richmenu/alias/{alias_id}',
+        method='GET'
+    )
+
 @line_proxy_bp.route('/v2/bot/richmenu/alias', methods=['POST', 'OPTIONS'])
 @check_ip_whitelist
 def create_alias():

@@ -179,6 +179,15 @@ window.listAliases = async function listAliases(channelAccessToken) {
             }
         });
         const text = await res.text();
+        // 舊版 Flask 代理尚未提供 Alias GET 路由時，不應讓整次上傳失敗。
+        // 這只會略過切換目標預檢；建立、更新 Alias 仍照原流程執行。
+        if (res.status === 405) {
+            return {
+                ok: true,
+                data: { aliases: [] },
+                validationUnavailable: true
+            };
+        }
         if (!res.ok) return { ok: false, status: res.status, message: safeParseLineError(text) };
         return { ok: true, data: JSON.parse(text) };
     } catch (e) {
