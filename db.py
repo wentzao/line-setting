@@ -115,6 +115,25 @@ def init_db():
             created_at TEXT NOT NULL
         )
     ''')
+
+    # Cloudflare R2 影片資產（Flex Message hero video 使用）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS video_assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            video_key TEXT NOT NULL UNIQUE,
+            preview_key TEXT NOT NULL,
+            video_url TEXT NOT NULL,
+            preview_url TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            duration_seconds REAL,
+            aspect_ratio TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
     
     # scheduled_jobs 表（定時排程上傳）
     cursor.execute('''
@@ -677,6 +696,49 @@ def delete_flex_message(flex_id):
     cursor.execute('DELETE FROM flex_messages WHERE id = ?', (flex_id,))
     conn.commit()
     conn.close()
+
+
+# === R2 Video Assets API ===
+
+def create_video_asset(name, original_filename, video_key, preview_key,
+                       video_url, preview_url, size_bytes, width=None,
+                       height=None, duration_seconds=None, aspect_ratio='16:9'):
+    conn = get_db()
+    cursor = conn.cursor()
+    created_at = datetime.utcnow().isoformat()
+    cursor.execute('''
+        INSERT INTO video_assets (
+            name, original_filename, video_key, preview_key,
+            video_url, preview_url, size_bytes, width, height,
+            duration_seconds, aspect_ratio, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        name, original_filename, video_key, preview_key,
+        video_url, preview_url, size_bytes, width, height,
+        duration_seconds, aspect_ratio, created_at
+    ))
+    conn.commit()
+    asset_id = cursor.lastrowid
+    conn.close()
+    return asset_id
+
+
+def list_video_assets():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM video_assets ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_video_asset(asset_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM video_assets WHERE id = ?', (asset_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 # === Scheduled Jobs API ===

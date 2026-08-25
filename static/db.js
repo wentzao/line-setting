@@ -650,6 +650,43 @@ window.deleteFlexMessage = async function deleteFlexMessage(id) {
     }
 };
 
+// === Cloudflare R2 Video Media API ===
+
+window.listVideoMedia = async function listVideoMedia() {
+    const response = await fetch(`${API_BASE}/media/videos`);
+    const data = await response.json();
+    if (!response.ok && !data.data) {
+        throw new Error(data.message || '無法取得 R2 影片庫');
+    }
+    return data;
+};
+
+window.uploadVideoMedia = function uploadVideoMedia(formData, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/media/videos`);
+        xhr.responseType = 'json';
+
+        xhr.upload.addEventListener('progress', event => {
+            if (event.lengthComputable && onProgress) {
+                onProgress(Math.round((event.loaded / event.total) * 100));
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            const data = xhr.response || {};
+            if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+                resolve(data.data);
+            } else {
+                reject(new Error(data.message || '影片上傳失敗'));
+            }
+        });
+        xhr.addEventListener('error', () => reject(new Error('網路中斷，影片尚未上傳')));
+        xhr.addEventListener('abort', () => reject(new Error('影片上傳已取消')));
+        xhr.send(formData);
+    });
+};
+
 // === Scheduled Jobs API ===
 
 window.listScheduledJobs = async function listScheduledJobs(projectId) {

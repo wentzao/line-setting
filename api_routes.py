@@ -10,10 +10,12 @@ from PIL import Image
 from io import BytesIO
 import base64
 import requests
+import re
 from urllib.parse import quote
 
 import db
 import config
+import r2_storage
 from auth import check_ip_whitelist
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -611,6 +613,109 @@ def get_flex_message_public(flex_id):
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# === Cloudflare R2 Video Media API ===
+
+def _uploaded_file_size(uploaded_file):
+    uploaded_file.stream.seek(0, os.SEEK_END)
+    size = uploaded_file.stream.tell()
+    uploaded_file.stream.seek(0)
+    return size
+
+
+@api_bp.route('/media/videos', methods=['GET'])
+@apply_auth
+def list_video_media():
+    """列出已上傳影片與目前 R2 bucket 用量。"""
+    try:
+        usage = r2_storage.storage_usage()
+        return jsonify({
+            'ok': True,
+            'data': {
+                'storage': usage,
+                'videos': db.list_video_assets(),
+            }
+        })
+    except r2_storage.R2StorageError as e:
+        return jsonify({
+            'ok': False,
+            'message': str(e),
+            'data': {
+                'storage': {
+                    'configured': r2_storage.is_configured(),
+                    'is_hard_limit': False,
+                },
+                'videos': db.list_video_assets(),
+            }
+        }), 503
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+
+
+@api_bp.route('/media/videos', methods=['POST'])
+@apply_auth
+def upload_video_media():
+    """上傳 MP4 與瀏覽器擷取的預覽圖到 R2。"""
+    try:
+        video = request.files.get('video')
+        preview = request.files.get('preview')
+        if not video or not video.filename:
+            return jsonify({'ok': False, 'message': '請選擇 MP4 影片'}), 400
+        if not preview or not preview.filename:
+            return jsonify({'ok': False, 'message': '無法取得影片預覽圖，請重新選擇影片'}), 400
+
+        extension = os.path.splitext(video.filename)[1].lower()
+        if extension != '.mp4':
+            return jsonify({'ok': False, 'message': 'LINE Flex 影片只支援 MP4 格式'}), 400
+
+        video_size = _uploaded_file_size(video)
+        preview_size = _uploaded_file_size(preview)
+        if video_size <= 0:
+            return jsonify({'ok': False, 'message': '影片檔案是空的'}), 400
+        if video_size > 200 * 1024 * 1024:
+            return jsonify({'ok': False, 'message': '影片不可超過 200 MB'}), 400
+        if preview_size <= 0 or preview_size > 1024 * 1024:
+            return jsonify({'ok': False, 'message': '影片預覽圖不可超過 1 MB'}), 400
+        if preview.mimetype not in ('image/jpeg', 'image/png'):
+            return jsonify({'ok': False, 'message': '影片預覽圖必須是 JPEG 或 PNG'}), 400
+
+        name = (request.form.get('name') or os.path.splitext(video.filename)[0]).strip()
+        name = name[:120] or '進階影片'
+        aspect_ratio = (request.form.get('aspect_ratio') or '16:9').strip()
+        if not re.fullmatch(r'[1-9]\d{0,5}:[1-9]\d{0,5}', aspect_ratio):
+            return jsonify({'ok': False, 'message': '影片比例格式不正確'}), 400
+
+        def optional_number(field, caster):
+            value = request.form.get(field, '').strip()
+            return caster(value) if value else None
+
+        width = optional_number('width', int)
+        height = optional_number('height', int)
+        duration = optional_number('duration', float)
+
+        uploaded = r2_storage.upload_video_pair(video, preview, video.filename)
+        asset_id = db.create_video_asset(
+            name=name,
+            original_filename=video.filename,
+            video_key=uploaded['video_key'],
+            preview_key=uploaded['preview_key'],
+            video_url=uploaded['video_url'],
+            preview_url=uploaded['preview_url'],
+            size_bytes=video_size,
+            width=width,
+            height=height,
+            duration_seconds=duration,
+            aspect_ratio=aspect_ratio,
+        )
+        asset = db.get_video_asset(asset_id)
+        return jsonify({'ok': True, 'data': asset}), 201
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'message': '影片尺寸或時間資訊不正確'}), 400
+    except r2_storage.R2StorageError as e:
+        return jsonify({'ok': False, 'message': str(e)}), 503
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
 
 # === Scheduled Jobs API ===
 

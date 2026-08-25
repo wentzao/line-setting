@@ -3812,23 +3812,110 @@ function createFlexEditorModal() {
 
     const modalHtml = `
     <div id="flex-editor-modal" class="modal-backdrop" aria-hidden="true" style="z-index: 10000;">
-        <div class="modal modal-large" role="dialog" aria-modal="true">
+        <div class="modal modal-large flex-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="flex-modal-title">
             <div class="modal-header">
-                <h3 id="flex-modal-title">Flex Message 設定</h3>
-                <button class="modal-close" id="close-flex-modal">&times;</button>
+                <div>
+                    <h3 id="flex-modal-title">Flex Message 設定</h3>
+                    <p class="modal-subtitle">建立一般 Flex，或從 R2 影片自動產生進階影片 Flex</p>
+                </div>
+                <button class="modal-close" id="close-flex-modal" aria-label="關閉">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>名稱 (識別用)</label>
+                    <label for="flex-name">名稱（識別用）</label>
                     <input type="text" id="flex-name" placeholder="例如：課程介紹卡片">
                 </div>
-                <div class="form-group">
-                    <label>Flex Message JSON (此處填寫 JSON 內容 object)</label>
-                    <textarea id="flex-json" rows="15" style="font-family: monospace; font-size: 12px;" placeholder='{ "type": "bubble", ... }'></textarea>
-                    <div style="text-align: right; margin-top: 5px;">
-                       <a href="https://developers.line.biz/flex-simulator/" target="_blank" style="font-size: 0.9em; color: #02a568;">開啟 LINE Flex Simulator ↗</a>
-                    </div>
+
+                <div class="flex-editor-tabs" role="tablist" aria-label="Flex 建立方式">
+                    <button type="button" class="flex-editor-tab active" data-flex-editor-tab="video" role="tab" aria-selected="true">進階影片</button>
+                    <button type="button" class="flex-editor-tab" data-flex-editor-tab="json" role="tab" aria-selected="false">JSON 編輯</button>
                 </div>
+
+                <section id="flex-video-panel" class="flex-editor-panel active" role="tabpanel">
+                    <div id="r2-storage-card" class="r2-storage-card" aria-live="polite">
+                        <div class="r2-storage-heading">
+                            <div>
+                                <span class="r2-eyebrow">CLOUDFLARE R2</span>
+                                <strong id="r2-storage-title">正在讀取影片庫…</strong>
+                            </div>
+                            <span id="r2-storage-status" class="status-pill local-only">連線中</span>
+                        </div>
+                        <div id="r2-storage-usage" class="r2-storage-usage is-loading">
+                            <div class="r2-storage-numbers">
+                                <span id="r2-used-label">—</span>
+                                <span id="r2-remaining-label">—</span>
+                            </div>
+                            <div class="r2-meter" role="progressbar" aria-label="R2 免費用量參考" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                                <span id="r2-meter-value"></span>
+                            </div>
+                            <small id="r2-storage-note">R2 bucket 沒有硬容量上限；此處以免費用量作為參考線。</small>
+                        </div>
+                    </div>
+
+                    <div class="flex-video-workspace">
+                        <div class="video-upload-column">
+                            <div class="section-heading-inline">
+                                <div>
+                                    <h4>上傳新影片</h4>
+                                    <p>選擇 MP4 後會自動擷取預覽圖、判斷比例並產生合法的 LINE Flex JSON。</p>
+                                </div>
+                            </div>
+
+                            <input type="file" id="flex-video-file" accept="video/mp4,.mp4" hidden>
+                            <button type="button" id="flex-video-dropzone" class="video-dropzone">
+                                <span class="video-dropzone-icon" aria-hidden="true">▶</span>
+                                <strong>選擇 MP4 影片</strong>
+                                <span>或將檔案拖曳到這裡</span>
+                                <small>最大 200 MB</small>
+                            </button>
+
+                            <div id="flex-video-preview" class="video-file-preview" hidden>
+                                <img id="flex-video-poster" alt="影片預覽圖">
+                                <div>
+                                    <strong id="flex-video-filename"></strong>
+                                    <span id="flex-video-meta"></span>
+                                    <button type="button" id="replace-flex-video" class="text-button">重新選擇</button>
+                                </div>
+                            </div>
+
+                            <div id="flex-video-upload-progress" class="video-upload-progress" hidden aria-live="polite">
+                                <div><span id="flex-video-progress-label">準備上傳…</span><strong id="flex-video-progress-value">0%</strong></div>
+                                <div class="r2-meter"><span id="flex-video-progress-bar"></span></div>
+                            </div>
+                            <div id="flex-video-error" class="inline-error" role="alert" hidden></div>
+                            <button type="button" id="upload-flex-video" class="btn video-primary-action" disabled>上傳至 R2 並套用</button>
+                        </div>
+
+                        <div class="video-library-column">
+                            <div class="section-heading-inline">
+                                <div>
+                                    <h4>R2 影片庫</h4>
+                                    <p>選取已上傳影片，可立即換成新的進階影片內容。</p>
+                                </div>
+                                <button type="button" id="refresh-r2-videos" class="text-button">重新整理</button>
+                            </div>
+                            <div id="r2-video-library" class="r2-video-library" aria-live="polite">
+                                <div class="media-empty-state">正在載入影片…</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="video-playback-note">
+                        <strong>關於自動播放</strong>
+                        <span>手機版會依使用者的 LINE「自動播放影片」設定與網路狀態決定；LINE 電腦版不支援自動播放。</span>
+                    </div>
+                </section>
+
+                <section id="flex-json-panel" class="flex-editor-panel" role="tabpanel" hidden>
+                    <div class="form-group flex-json-group">
+                        <div class="section-heading-inline">
+                            <label for="flex-json">Flex Message JSON</label>
+                            <a href="https://developers.line.biz/flex-simulator/" target="_blank" rel="noopener">開啟 LINE Flex Simulator ↗</a>
+                        </div>
+                        <textarea id="flex-json" rows="15" spellcheck="false" placeholder='{ "type": "bubble", ... }'></textarea>
+                        <small>這裡儲存 Flex 的 contents 物件；進階影片產生後仍可在此調整 body、footer 或影片完成後的連結。</small>
+                    </div>
+                </section>
             </div>
             <div class="modal-footer" style="display: flex; justify-content: space-between;">
                 <button id="delete-flex-btn" class="btn danger" style="display: none;">刪除</button>
@@ -3842,11 +3929,324 @@ function createFlexEditorModal() {
     `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    // Close handlers
     const modal = document.getElementById('flex-editor-modal');
-    const close = () => modal.classList.remove('show');
+    const close = () => {
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+    };
     document.getElementById('close-flex-modal').addEventListener('click', close);
     document.getElementById('cancel-flex-btn').addEventListener('click', close);
+
+    modal.querySelectorAll('[data-flex-editor-tab]').forEach(tab => {
+        tab.addEventListener('click', () => setFlexEditorMode(tab.dataset.flexEditorTab));
+    });
+    document.getElementById('flex-video-dropzone').addEventListener('click', () => {
+        document.getElementById('flex-video-file').click();
+    });
+    document.getElementById('replace-flex-video').addEventListener('click', () => {
+        document.getElementById('flex-video-file').click();
+    });
+    document.getElementById('flex-video-file').addEventListener('change', event => {
+        prepareFlexVideoFile(event.target.files[0]);
+    });
+
+    const dropzone = document.getElementById('flex-video-dropzone');
+    ['dragenter', 'dragover'].forEach(type => dropzone.addEventListener(type, event => {
+        event.preventDefault();
+        dropzone.classList.add('dragging');
+    }));
+    ['dragleave', 'drop'].forEach(type => dropzone.addEventListener(type, event => {
+        event.preventDefault();
+        dropzone.classList.remove('dragging');
+    }));
+    dropzone.addEventListener('drop', event => prepareFlexVideoFile(event.dataTransfer.files[0]));
+    document.getElementById('refresh-r2-videos').addEventListener('click', loadR2VideoLibrary);
+    document.getElementById('upload-flex-video').addEventListener('click', uploadPreparedFlexVideo);
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && modal.classList.contains('show')) close();
+    });
+}
+
+function setFlexEditorMode(mode) {
+    const isVideo = mode === 'video';
+    document.querySelectorAll('[data-flex-editor-tab]').forEach(tab => {
+        const active = tab.dataset.flexEditorTab === mode;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', String(active));
+    });
+    const videoPanel = document.getElementById('flex-video-panel');
+    const jsonPanel = document.getElementById('flex-json-panel');
+    videoPanel.classList.toggle('active', isVideo);
+    videoPanel.hidden = !isVideo;
+    jsonPanel.classList.toggle('active', !isVideo);
+    jsonPanel.hidden = isVideo;
+}
+
+function formatMediaBytes(bytes) {
+    const value = Number(bytes) || 0;
+    if (value < 1024) return `${value} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let size = value;
+    let unit = -1;
+    do {
+        size /= 1024;
+        unit += 1;
+    } while (size >= 1024 && unit < units.length - 1);
+    return `${size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${units[unit]}`;
+}
+
+function formatVideoDuration(seconds) {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    const minutes = Math.floor(total / 60);
+    return `${minutes}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function greatestCommonDivisor(a, b) {
+    let x = Math.abs(a);
+    let y = Math.abs(b);
+    while (y) [x, y] = [y, x % y];
+    return x || 1;
+}
+
+function videoAssetToFlexJson(asset) {
+    const ratio = asset.aspect_ratio || '16:9';
+    return {
+        type: 'bubble',
+        size: 'mega',
+        hero: {
+            type: 'video',
+            url: asset.video_url,
+            previewUrl: asset.preview_url,
+            altContent: {
+                type: 'image',
+                size: 'full',
+                aspectRatio: ratio,
+                aspectMode: 'cover',
+                url: asset.preview_url
+            },
+            aspectRatio: ratio
+        }
+    };
+}
+
+function applyVideoAssetToFlex(asset) {
+    document.getElementById('flex-json').value = JSON.stringify(videoAssetToFlexJson(asset), null, 2);
+    const nameInput = document.getElementById('flex-name');
+    if (!nameInput.value.trim()) nameInput.value = asset.name || '進階影片';
+
+    document.querySelectorAll('.r2-video-item').forEach(item => {
+        item.classList.toggle('selected', Number(item.dataset.assetId) === Number(asset.id));
+    });
+    const error = document.getElementById('flex-video-error');
+    error.hidden = false;
+    error.className = 'inline-success';
+    error.textContent = `已套用「${asset.name || asset.original_filename}」，按下儲存即可供 Rich Menu 回傳。`;
+}
+
+async function loadR2VideoLibrary() {
+    const library = document.getElementById('r2-video-library');
+    const status = document.getElementById('r2-storage-status');
+    const title = document.getElementById('r2-storage-title');
+    const usageEl = document.getElementById('r2-storage-usage');
+    const uploadButton = document.getElementById('upload-flex-video');
+    const dropzone = document.getElementById('flex-video-dropzone');
+    library.innerHTML = '<div class="media-empty-state">正在載入影片…</div>';
+    status.textContent = '連線中';
+    status.className = 'status-pill local-only';
+
+    try {
+        const result = await listVideoMedia();
+        const storage = result.data && result.data.storage ? result.data.storage : {};
+        const videos = result.data && Array.isArray(result.data.videos) ? result.data.videos : [];
+        const configured = Boolean(storage.configured);
+
+        status.textContent = configured && result.ok ? '已連接' : '尚未連接';
+        status.className = `status-pill ${configured && result.ok ? 'connected' : 'local-only'}`;
+        title.textContent = configured ? (storage.bucket || 'R2 影片儲存空間') : '尚未連接 R2';
+        dropzone.disabled = !configured || !result.ok;
+        uploadButton.disabled = !configured || !result.ok || !document.getElementById('flex-editor-modal')._preparedVideo;
+
+        if (configured && result.ok) {
+            const quota = Number(storage.reference_quota_bytes) || 0;
+            const used = Number(storage.used_bytes) || 0;
+            const percent = quota ? Math.min(100, (used / quota) * 100) : 0;
+            document.getElementById('r2-used-label').textContent = `已使用 ${formatMediaBytes(used)} · ${storage.object_count || 0} 個檔案`;
+            document.getElementById('r2-remaining-label').textContent = `免費用量參考尚餘 ${formatMediaBytes(storage.reference_remaining_bytes)}`;
+            document.getElementById('r2-meter-value').style.width = `${percent}%`;
+            usageEl.querySelector('.r2-meter').setAttribute('aria-valuenow', String(Math.round(percent)));
+            usageEl.classList.remove('is-loading');
+        } else {
+            document.getElementById('r2-used-label').textContent = '需要完成伺服器端 R2 設定';
+            document.getElementById('r2-remaining-label').textContent = '';
+            document.getElementById('r2-meter-value').style.width = '0%';
+            document.getElementById('r2-storage-note').textContent = result.message || '完成 R2 金鑰、Bucket 與公開網址設定後即可上傳。';
+        }
+
+        if (!videos.length) {
+            library.innerHTML = `<div class="media-empty-state"><strong>${configured ? '影片庫還是空的' : '尚無可用影片'}</strong><span>${configured ? '上傳第一支 MP4 後會顯示在這裡。' : '連接 R2 後即可建立影片庫。'}</span></div>`;
+            return;
+        }
+
+        library.innerHTML = '';
+        videos.forEach(asset => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'r2-video-item';
+            button.dataset.assetId = asset.id;
+            button.innerHTML = `
+                <img src="${escapeHtml(asset.preview_url)}" alt="" loading="lazy">
+                <span>
+                    <strong>${escapeHtml(asset.name || asset.original_filename)}</strong>
+                    <small>${escapeHtml(asset.aspect_ratio || '—')} · ${formatMediaBytes(asset.size_bytes)} · ${formatVideoDuration(asset.duration_seconds)}</small>
+                </span>
+                <b>套用</b>
+            `;
+            button.addEventListener('click', () => applyVideoAssetToFlex(asset));
+            library.appendChild(button);
+        });
+    } catch (error) {
+        status.textContent = '讀取失敗';
+        status.className = 'status-pill local-only';
+        title.textContent = '無法讀取 R2';
+        library.innerHTML = `<div class="media-empty-state"><strong>影片庫載入失敗</strong><span>${escapeHtml(error.message)}</span></div>`;
+    }
+}
+
+async function createVideoPoster(file) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        const objectUrl = URL.createObjectURL(file);
+        let metadata = null;
+
+        const cleanup = () => {
+            URL.revokeObjectURL(objectUrl);
+            video.removeAttribute('src');
+            video.load();
+        };
+        const fail = () => {
+            cleanup();
+            reject(new Error('無法讀取影片畫面，請確認檔案是瀏覽器可播放的 MP4（建議 H.264）'));
+        };
+
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true;
+        video.addEventListener('error', fail, { once: true });
+        video.addEventListener('loadedmetadata', () => {
+            if (!video.videoWidth || !video.videoHeight) return fail();
+            metadata = {
+                width: video.videoWidth,
+                height: video.videoHeight,
+                duration: Number.isFinite(video.duration) ? video.duration : 0
+            };
+            video.currentTime = Math.min(1, Math.max(0, metadata.duration / 3));
+        }, { once: true });
+        video.addEventListener('seeked', () => {
+            const maxDimension = 1280;
+            const scale = Math.min(1, maxDimension / Math.max(metadata.width, metadata.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(metadata.width * scale));
+            canvas.height = Math.max(1, Math.round(metadata.height * scale));
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(blob => {
+                if (!blob) return fail();
+                const previewUrl = URL.createObjectURL(blob);
+                cleanup();
+                resolve({ ...metadata, blob, previewUrl });
+            }, 'image/jpeg', 0.82);
+        }, { once: true });
+        video.src = objectUrl;
+    });
+}
+
+async function prepareFlexVideoFile(file) {
+    if (!file) return;
+    const modal = document.getElementById('flex-editor-modal');
+    const errorEl = document.getElementById('flex-video-error');
+    const uploadButton = document.getElementById('upload-flex-video');
+    errorEl.hidden = true;
+    errorEl.className = 'inline-error';
+    uploadButton.disabled = true;
+
+    if (!/\.mp4$/i.test(file.name)) {
+        errorEl.textContent = 'LINE Flex 影片只支援 MP4，請重新選擇檔案。';
+        errorEl.hidden = false;
+        return;
+    }
+    if (file.size > 200 * 1024 * 1024) {
+        errorEl.textContent = '影片超過 LINE 的 200 MB 上限，請先壓縮後再上傳。';
+        errorEl.hidden = false;
+        return;
+    }
+
+    try {
+        if (modal._preparedVideo && modal._preparedVideo.posterUrl) {
+            URL.revokeObjectURL(modal._preparedVideo.posterUrl);
+        }
+        const poster = await createVideoPoster(file);
+        const divisor = greatestCommonDivisor(poster.width, poster.height);
+        const aspectRatio = `${poster.width / divisor}:${poster.height / divisor}`;
+        if (poster.height > poster.width * 3) {
+            throw new Error('影片過於狹長；LINE Flex 的高度不可超過寬度 3 倍');
+        }
+
+        modal._preparedVideo = { file, ...poster, aspectRatio, posterUrl: poster.previewUrl };
+        document.getElementById('flex-video-poster').src = poster.previewUrl;
+        document.getElementById('flex-video-filename').textContent = file.name;
+        document.getElementById('flex-video-meta').textContent = `${poster.width} × ${poster.height} · ${aspectRatio} · ${formatVideoDuration(poster.duration)} · ${formatMediaBytes(file.size)}`;
+        document.getElementById('flex-video-preview').hidden = false;
+        document.getElementById('flex-video-dropzone').hidden = true;
+        uploadButton.disabled = document.getElementById('flex-video-dropzone').disabled;
+
+        const nameInput = document.getElementById('flex-name');
+        if (!nameInput.value.trim()) nameInput.value = file.name.replace(/\.mp4$/i, '');
+    } catch (error) {
+        modal._preparedVideo = null;
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+    }
+}
+
+async function uploadPreparedFlexVideo() {
+    const modal = document.getElementById('flex-editor-modal');
+    const prepared = modal._preparedVideo;
+    if (!prepared) return;
+
+    const button = document.getElementById('upload-flex-video');
+    const progress = document.getElementById('flex-video-upload-progress');
+    const errorEl = document.getElementById('flex-video-error');
+    const progressBar = document.getElementById('flex-video-progress-bar');
+    const progressValue = document.getElementById('flex-video-progress-value');
+    button.disabled = true;
+    progress.hidden = false;
+    errorEl.hidden = true;
+
+    const formData = new FormData();
+    formData.append('video', prepared.file, prepared.file.name);
+    formData.append('preview', prepared.blob, `${prepared.file.name.replace(/\.mp4$/i, '')}-preview.jpg`);
+    formData.append('name', document.getElementById('flex-name').value.trim() || prepared.file.name);
+    formData.append('width', prepared.width);
+    formData.append('height', prepared.height);
+    formData.append('duration', prepared.duration);
+    formData.append('aspect_ratio', prepared.aspectRatio);
+
+    try {
+        const asset = await uploadVideoMedia(formData, percent => {
+            progressBar.style.width = `${percent}%`;
+            progressValue.textContent = `${percent}%`;
+            document.getElementById('flex-video-progress-label').textContent = percent < 100 ? '上傳至 R2…' : '正在完成處理…';
+        });
+        progress.hidden = true;
+        applyVideoAssetToFlex(asset);
+        await loadR2VideoLibrary();
+    } catch (error) {
+        errorEl.className = 'inline-error';
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+        progress.hidden = true;
+        button.disabled = false;
+    }
 }
 
 async function openFlexEditorModal(flexId, onSaveCallback) {
@@ -3861,6 +4261,14 @@ async function openFlexEditorModal(flexId, onSaveCallback) {
     nameInput.value = '';
     jsonInput.value = '';
     deleteBtn.style.display = 'none';
+    modal._preparedVideo = null;
+    document.getElementById('flex-video-file').value = '';
+    document.getElementById('flex-video-preview').hidden = true;
+    document.getElementById('flex-video-dropzone').hidden = false;
+    document.getElementById('flex-video-upload-progress').hidden = true;
+    const videoError = document.getElementById('flex-video-error');
+    videoError.hidden = true;
+    videoError.className = 'inline-error';
 
     if (flexId) {
         title.textContent = '編輯 Flex Message';
@@ -3870,12 +4278,17 @@ async function openFlexEditorModal(flexId, onSaveCallback) {
         if (data) {
             nameInput.value = data.name;
             jsonInput.value = JSON.stringify(data.json_content, null, 2);
+            setFlexEditorMode(data.json_content && data.json_content.hero && data.json_content.hero.type === 'video' ? 'video' : 'json');
         }
     } else {
         title.textContent = '新增 Flex Message';
+        setFlexEditorMode('video');
     }
 
     modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    nameInput.focus();
+    loadR2VideoLibrary();
 
     // Remove old listeners to prevent duplication (simple clone replacement)
     const newSaveBtn = saveBtn.cloneNode(true);

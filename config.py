@@ -10,10 +10,21 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 # 資料庫設定
 DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'database.db')
 
-# 圖片上傳設定
+# 檔案上傳設定（LINE Flex 影片上限為 200 MB，另留 multipart 邊界空間）
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
+MAX_CONTENT_LENGTH = 205 * 1024 * 1024
+
+# Cloudflare R2 影片儲存設定
+# R2_PUBLIC_BASE_URL 必須是可由 LINE 直接讀取的 HTTPS 自訂網域或 r2.dev 網址。
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID', '').strip()
+R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '').strip()
+R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '').strip()
+R2_BUCKET_NAME = os.environ.get('R2_BUCKET_NAME', '').strip()
+R2_PUBLIC_BASE_URL = os.environ.get('R2_PUBLIC_BASE_URL', '').strip().rstrip('/')
+R2_KEY_PREFIX = os.environ.get('R2_KEY_PREFIX', 'line-richmenu').strip().strip('/')
+# R2 bucket 沒有硬容量上限；此值只用來呈現每月免費/預算參考線。
+R2_DISPLAY_QUOTA_GB = float(os.environ.get('R2_DISPLAY_QUOTA_GB', '10'))
 
 # IP 白名單（只允許這些 IP 存取）
 ALLOWED_IPS = [
