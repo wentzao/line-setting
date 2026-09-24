@@ -431,8 +431,11 @@ def upload_richmenu_image(rich_menu_id):
             }), 400
         
         # 每次上傳使用唯一檔名，避免替換圖片後瀏覽器仍顯示舊快取。
-        safe_original = secure_filename(file.filename)
-        extension = os.path.splitext(safe_original)[1].lower()
+        # 不可從 secure_filename() 的結果取得副檔名：純中文檔名如
+        #「圖片.png」會被轉成「png」，連同分隔用的點一起移除，造成
+        # Pillow 儲存縮圖時無法判斷格式（unknown file extension）。
+        # 實際儲存檔名已使用 UUID，不會直接使用使用者提供的檔名。
+        extension = os.path.splitext(file.filename)[1].lower()
         filename = f'rm_{rich_menu_id}_{uuid.uuid4().hex[:12]}{extension}'
         filepath = os.path.join(config.UPLOAD_FOLDER, filename)
         with open(filepath, 'wb') as f:
